@@ -1,13 +1,20 @@
 #ifndef __RX5808_DIV_HW_VERS_H
 #define __RX5808_DIV_HW_VERS_H
 
-
+// Software Version v1.5.0
+// Changes in v1.5:
+//   - ExpressLRS backpack integration (CRSF protocol, GPIO16/17 UART)
+//   - Performance optimizations (RSSI filtering, 3x faster channel switching)
+//   - Fixed Band E frequency mapping for VTX compatibility
+//   - D0WDQ6_VER hardware variant support (v1.2 hardware)
+//   - Moving average filter for smooth RSSI readings (4 samples)
+//   - Reduced channel settling time from 150ms to 50ms
 #define RX5808_VERSION_MAJOR  1
-#define RX5808_VERSION_MINOR  4
+#define RX5808_VERSION_MINOR  5
 #define RX5808_VERSION_PATCH  0
 
 //#define ST7735S
-//#define D0WDQ6_VER
+#define D0WDQ6_VER   // ENABLE this for v1.2 hardware
 #define SPI_LOW_SPEED
 
 
