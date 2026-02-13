@@ -14,6 +14,10 @@
 #include "hwvers.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "elrs_backpack.h"
+#include "esp_log.h"
+
+static const char *TAG = "SYSTEM";
 
 
 void create_cpu_stack_monitor_task();
@@ -71,24 +75,42 @@ void timer_init()
 
 void system_init(void)
 {
+	// Display firmware version banner
+	printf("\n");
+	printf("╔══════════════════════════════════════════════════════╗\n");
+	printf("║  RX5808 Diversity Receiver Firmware v%d.%d.%d         ║\n", 
+	         RX5808_VERSION_MAJOR, RX5808_VERSION_MINOR, RX5808_VERSION_PATCH);
+	printf("║  - ExpressLRS Backpack Integration                  ║\n");
+	printf("║  - Performance Optimizations (RSSI Filter, 3x Speed) ║\n");
+	printf("║  - Hardware v1.2 Support (D0WDQ6_VER)                ║\n");
+	printf("╚══════════════════════════════════════════════════════╝\n");
+	printf("\n");
+	
 	LCD_Init();
-	//printf("lcd init success!\n");
+	printf("lcd init success!\n");
 	fan_Init();	
-	//printf("fan init success!\n");
+	printf("fan init success!\n");
  	eeprom_24cxx_init();	
-	//printf("24cxx init success!\n");
+	printf("24cxx init success!\n");
  	rx5808_div_setup_load();
-	//printf("setup load success!\n");
+	printf("setup load success!\n");
  	LED_Init();
-	//printf("led init success!\n"); 	
+	printf("led init success!\n"); 	
  	Beep_Init();
-	//printf("beep init success!\n");
+	printf("beep init success!\n");
     timer_init();  
-	//printf("timer init success!\n");	
+	printf("timer init success!\n");	
     RX5808_Init();
-	//printf("RX5808 init success!\n");
+	printf("RX5808 init success!\n");
 	//ws2812_init();
 	//printf("ws2812 init success!\n");
+	
+	// Initialize ExpressLRS Backpack (optional - comment out if not using)
+	#ifdef CONFIG_ELRS_BACKPACK_ENABLE
+	elrs_backpack_init();
+	printf("ExpressLRS backpack enabled and initialized!\n");
+	#endif
+	
 	//while(1);
 
     //create_cpu_stack_monitor_task();
