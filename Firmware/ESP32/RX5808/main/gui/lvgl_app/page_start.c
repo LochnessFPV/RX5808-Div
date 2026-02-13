@@ -1,6 +1,7 @@
 #include "page_start.h"
 #include "page_main.h"
 #include "lvgl_stl.h"
+#include "hwvers.h"
 
 //信号质量背光亮度开机动画蜂鸣器打关闭语言中文输出源保存并退出供电压界面版本源协议固件扫描中图传始校准成功失败启设置最大功率过小请重试屏幕系统自接收频谱道结果已安装天线风扇转速制式，
 //接收机设置关于分集扫描中结束模拟 0x21,0x2d,0x2e
@@ -40,6 +41,12 @@ void page_start_create()
         lv_obj_align(start_info_bar, LV_ALIGN_TOP_MID, 0, 53);
         lv_bar_set_value(start_info_bar, 0, LV_ANIM_OFF);
 
+        // Add version label below the loading bar
+        lv_obj_t* version_label = lv_label_create(page_start_contain);
+        lv_obj_align(version_label, LV_ALIGN_TOP_MID, 0, 63);
+        lv_obj_set_style_text_color(version_label, lv_color_make(128, 128, 128), LV_STATE_DEFAULT);
+        lv_label_set_text_fmt(version_label, "v%d.%d.%d", 
+            RX5808_VERSION_MAJOR, RX5808_VERSION_MINOR, RX5808_VERSION_PATCH);
 
         lv_amin_start(start_info_label, -50, 20, 1, 800, 0, (lv_anim_exec_xcb_t)lv_obj_set_y, lv_anim_path_linear);
         lv_amin_start(start_info_bar, 0, 100, 1, 500, 800, (lv_anim_exec_xcb_t)lv_obj_opa_cb, lv_anim_path_linear);
