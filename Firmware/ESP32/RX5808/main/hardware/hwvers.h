@@ -1,17 +1,23 @@
 #ifndef __RX5808_DIV_HW_VERS_H
 #define __RX5808_DIV_HW_VERS_H
 
-// Software Version v1.5.0
-// Changes in v1.5:
+// Software Version v1.5.1
+// Changes in v1.5.1:
+//   - Advanced diversity algorithm with dwell, hysteresis, cooldown
+//   - Variance-based stability scoring for better switching decisions
+//   - Mode profiles: Race, Freestyle, Long Range
+//   - Enhanced telemetry overlay (active RX, switch counters, RSSI delta)
+//   - Interactive RSSI calibration wizard
+//   - Switch event counters and stability metrics
+//
+// Changes in v1.5.0:
 //   - ExpressLRS backpack integration (CRSF protocol, GPIO16/17 UART)
 //   - Performance optimizations (RSSI filtering, 3x faster channel switching)
 //   - Fixed Band E frequency mapping for VTX compatibility
 //   - D0WDQ6_VER hardware variant support (v1.2 hardware)
-//   - Moving average filter for smooth RSSI readings (4 samples)
-//   - Reduced channel settling time from 150ms to 50ms
 #define RX5808_VERSION_MAJOR  1
 #define RX5808_VERSION_MINOR  5
-#define RX5808_VERSION_PATCH  0
+#define RX5808_VERSION_PATCH  1
 
 //#define ST7735S
 #define D0WDQ6_VER   // ENABLE this for v1.2 hardware
