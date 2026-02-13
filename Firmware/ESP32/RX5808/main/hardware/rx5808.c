@@ -21,7 +21,11 @@
 #define Receiver_control_Register_1 				        0x08
 #define Receiver_control_Register_2 				        0x09
 #define Power_Down_Control_Register                 0x0A 
-#define State_Register                              0x0F  
+#define State_Register                              0x0F
+
+// Performance optimization settings
+#define RSSI_FILTER_SIZE 4              // Moving average filter size (reduces jitter)
+#define RX5808_FREQ_SETTLING_TIME_MS 50 // Reduced from 150ms for faster channel switching  
 
 
 
@@ -32,6 +36,11 @@ bool RX5808_Shutdown = false;
 //uint16_t adc_convert_temp0[32][3];
 //uint16_t adc_convert_temp1[32][3];
 uint16_t adc_converted_value[3]={1024,1024,1024};
+
+// RSSI filtering buffers for smoother readings
+static uint16_t rssi0_filter_buffer[RSSI_FILTER_SIZE] = {0};
+static uint16_t rssi1_filter_buffer[RSSI_FILTER_SIZE] = {0};
+static uint8_t rssi_filter_index = 0;
 
 volatile int8_t channel_count = 0;
 volatile int8_t Chx_count = 0;
@@ -47,12 +56,12 @@ volatile uint16_t Rx5808_Signal_Source=0;
 const char Rx5808_ChxMap[6] = {'A', 'B', 'E', 'F', 'R', 'L'};
 const uint16_t Rx5808_Freq[6][8]=
 {
-	{5865,5845,5825,5805,5785,5765,5745,5725},	    //A	CH1-8
-    {5733,5752,5771,5790,5809,5828,5847,5866},		//B	CH1-8
-    {5705,5685,5665,5645,5885,5905,5925,5945},		//E	CH1-8
-    {5740,5760,5780,5800,5820,5840,5860,5880},		//F	CH1-8
-    {5658,5695,5732,5769,5806,5843,5880,5917},		//R	CH1-8
-    {5362,5399,5436,5473,5510,5547,5584,5621}		//L	CH1-8
+	{5865,5845,5825,5805,5785,5765,5745,5725},	    //A	CH1-8 (BOSCAM_A)
+    {5733,5752,5771,5790,5809,5828,5847,5866},		//B	CH1-8 (BOSCAM_B)
+    {5705,5685,5665,5800,5885,5905,5800,5800},		//E	CH1-8 (BOSCAM_E) - Ch4,7,8 use F4 (disabled in standard VTX)
+    {5740,5760,5780,5800,5820,5840,5860,5880},		//F	CH1-8 (FATSHARK)
+    {5658,5695,5732,5769,5806,5843,5880,5917},		//R	CH1-8 (RACEBAND)
+    {5362,5399,5436,5473,5510,5547,5584,5621}		//L	CH1-8 (LOWBAND)
 };
 
 static esp_adc_cal_characteristics_t adc1_chars;
@@ -202,6 +211,9 @@ void RX5808_Set_Freq(uint16_t Fre)
 	A=F_LO%32;    
 
 	Send_Register_Data(Synthesizer_Register_B,N<<7|A);
+	
+	// Wait for RX5808 to settle on new frequency (optimized for faster switching)
+	vTaskDelay(RX5808_FREQ_SETTLING_TIME_MS / portTICK_PERIOD_MS);
 }
 
 void Rx5808_Set_Channel(uint8_t ch)
@@ -307,14 +319,30 @@ float Rx5808_Calculate_RSSI_Precentage(uint16_t value, uint16_t min, uint16_t ma
    return precent;   
 }
 
+// Apply moving average filter to RSSI value for smoother readings
+static uint16_t filter_rssi(uint16_t new_value, uint16_t *buffer) {
+    buffer[rssi_filter_index] = new_value;
+    rssi_filter_index = (rssi_filter_index + 1) % RSSI_FILTER_SIZE;
+    
+    uint32_t sum = 0;
+    for(int i = 0; i < RSSI_FILTER_SIZE; i++) {
+        sum += buffer[i];
+    }
+    return sum / RSSI_FILTER_SIZE;
+}
+
 float Rx5808_Get_Precentage0()
 {
-    return Rx5808_Calculate_RSSI_Precentage(adc_converted_value[0],Rx5808_RSSI_Ad_Min0,Rx5808_RSSI_Ad_Max0);
+    // Apply smoothing filter before calculating percentage
+    uint16_t filtered_value = filter_rssi(adc_converted_value[0], rssi0_filter_buffer);
+    return Rx5808_Calculate_RSSI_Precentage(filtered_value, Rx5808_RSSI_Ad_Min0, Rx5808_RSSI_Ad_Max0);
 }
 
 float Rx5808_Get_Precentage1()
 {
-    return Rx5808_Calculate_RSSI_Precentage(adc_converted_value[1], Rx5808_RSSI_Ad_Min1,Rx5808_RSSI_Ad_Max1);
+    // Apply smoothing filter before calculating percentage
+    uint16_t filtered_value = filter_rssi(adc_converted_value[1], rssi1_filter_buffer);
+    return Rx5808_Calculate_RSSI_Precentage(filtered_value, Rx5808_RSSI_Ad_Min1, Rx5808_RSSI_Ad_Max1);
 }
 
 float Get_Battery_Voltage()
