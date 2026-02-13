@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include "beep.h"
 #include "lv_port_disp.h"
+#include "diversity.h"
 
 //LV_FONT_DECLARE(lv_font_chinese_16);
 LV_FONT_DECLARE(lv_font_chinese_12);
@@ -36,6 +37,12 @@ static lv_obj_t* rssi_chart;
 static lv_chart_series_t* rssi_curve;
 
 static lv_timer_t* page_main_update_timer;
+
+// Diversity telemetry UI elements
+static lv_obj_t* diversity_rx_label;      // Active RX indicator (A/B)
+static lv_obj_t* diversity_switch_label;  // Switch counter
+static lv_obj_t* diversity_delta_label;   // RSSI delta
+static lv_obj_t* diversity_mode_label;    // Current mode
 
 bool lock_flag = false;    //lock
 
@@ -123,8 +130,36 @@ static void event_callback(lv_event_t* event)
 
 static void page_main_update(lv_timer_t* tmr)
 {
+    // Update diversity algorithm (runs at 250Hz internally with timer checks)
+    diversity_update();
+    
     int rssi0 = (int)Rx5808_Get_Precentage0();
     int rssi1 = (int)Rx5808_Get_Precentage1();
+    
+    // Update diversity telemetry overlay
+    if (RX5808_Get_Signal_Source() == 0) // Diversity mode
+    {
+        // Update active receiver indicator
+        diversity_rx_t active_rx = diversity_get_active_rx();
+        lv_label_set_text(diversity_rx_label, active_rx == DIVERSITY_RX_A ? "A" : "B");
+        
+        // Update switch statistics
+        diversity_state_t* state = diversity_get_state();
+        lv_label_set_text_fmt(diversity_switch_label, "SW:%u", state->switch_count);
+        
+        // Update RSSI delta
+        lv_label_set_text_fmt(diversity_delta_label, "Δ:%d", state->rssi_delta);
+        
+        // Update mode indicator
+        const char* mode_str = "?";
+        switch(state->mode) {
+            case DIVERSITY_MODE_RACE: mode_str = "RACE"; break;
+            case DIVERSITY_MODE_FREESTYLE: mode_str = "FREE"; break;
+            case DIVERSITY_MODE_LONG_RANGE: mode_str = "L-R"; break;
+        }
+        lv_label_set_text(diversity_mode_label, mode_str);
+    }
+    
     if (RX5808_Get_Signal_Source() == 0)
     {
         lv_bar_set_value(rssi_bar0, rssi1, LV_ANIM_ON);
@@ -396,6 +431,41 @@ void page_main_create()
     lv_imgbtn_set_src(lock_btn, LV_IMGBTN_STATE_RELEASED, &lock_img, NULL, NULL);
     lv_imgbtn_set_src(lock_btn, LV_IMGBTN_STATE_PRESSED, &lock_img, NULL, NULL);
 
+    // Create diversity telemetry overlay (only in diversity mode)
+    if (RX5808_Get_Signal_Source() == 0)
+    {
+        // Active RX indicator (top right)
+        diversity_rx_label = lv_label_create(main_contain);
+        lv_obj_set_style_text_font(diversity_rx_label, &lv_font_montserrat_16, LV_STATE_DEFAULT);
+        lv_obj_set_style_text_color(diversity_rx_label, lv_color_make(0, 255, 0), LV_STATE_DEFAULT);
+        lv_obj_set_style_bg_opa(diversity_rx_label, LV_OPA_COVER, LV_STATE_DEFAULT);
+        lv_obj_set_style_bg_color(diversity_rx_label, lv_color_black(), LV_STATE_DEFAULT);
+        lv_obj_set_style_radius(diversity_rx_label, 4, LV_STATE_DEFAULT);
+        lv_obj_set_pos(diversity_rx_label, 145, 2);
+        lv_label_set_text(diversity_rx_label, "A");
+        
+        // Mode indicator (below channel)
+        diversity_mode_label = lv_label_create(main_contain);
+        lv_obj_set_style_text_font(diversity_mode_label, &lv_font_montserrat_12, LV_STATE_DEFAULT);
+        lv_obj_set_style_text_color(diversity_mode_label, lv_color_make(255, 157, 0), LV_STATE_DEFAULT);
+        lv_obj_set_pos(diversity_mode_label, 5, 18);
+        lv_label_set_text(diversity_mode_label, "RACE");
+        
+        // Switch counter (bottom right)
+        diversity_switch_label = lv_label_create(main_contain);
+        lv_obj_set_style_text_font(diversity_switch_label, &lv_font_montserrat_12, LV_STATE_DEFAULT);
+        lv_obj_set_style_text_color(diversity_switch_label, lv_color_make(255, 255, 100), LV_STATE_DEFAULT);
+        lv_obj_set_pos(diversity_switch_label, 145, 50);
+        lv_label_set_text(diversity_switch_label, "SW:0");
+        
+        // RSSI delta (bottom right, below switch counter)
+        diversity_delta_label = lv_label_create(main_contain);
+        lv_obj_set_style_text_font(diversity_delta_label, &lv_font_montserrat_12, LV_STATE_DEFAULT);
+        lv_obj_set_style_text_color(diversity_delta_label, lv_color_make(200, 200, 255), LV_STATE_DEFAULT);
+        lv_obj_set_pos(diversity_delta_label, 145, 65);
+        lv_label_set_text(diversity_delta_label, "Δ:0");
+    }
+
     if(RX5808_Get_Signal_Source()==0)
     page_main_update_timer = lv_timer_create(page_main_update, 500, NULL);
     else
@@ -443,6 +513,11 @@ static void page_main_exit()
      lv_amin_start(lv_rsss1_label, lv_obj_get_y(lv_rsss1_label), 95, 1, 500, 0, (lv_anim_exec_xcb_t)lv_obj_set_y, page_main_anim_leave);
      lv_amin_start(rssi_label1, lv_obj_get_y(rssi_label1), 95, 1, 500, 0, (lv_anim_exec_xcb_t)lv_obj_set_y, page_main_anim_leave);
      lv_amin_start(rssi_bar1, lv_obj_get_y(rssi_bar1), 95, 1, 500, 0, (lv_anim_exec_xcb_t)lv_obj_set_y, page_main_anim_leave);
+     // Animate diversity telemetry out
+     lv_amin_start(diversity_rx_label, lv_obj_get_y(diversity_rx_label), -30, 1, 500, 0, (lv_anim_exec_xcb_t)lv_obj_set_y, page_main_anim_leave);
+     lv_amin_start(diversity_mode_label, lv_obj_get_y(diversity_mode_label), -30, 1, 500, 0, (lv_anim_exec_xcb_t)lv_obj_set_y, page_main_anim_leave);
+     lv_amin_start(diversity_switch_label, lv_obj_get_y(diversity_switch_label), 95, 1, 500, 0, (lv_anim_exec_xcb_t)lv_obj_set_y, page_main_anim_leave);
+     lv_amin_start(diversity_delta_label, lv_obj_get_y(diversity_delta_label), 95, 1, 500, 0, (lv_anim_exec_xcb_t)lv_obj_set_y, page_main_anim_leave);
     }
     else
     {

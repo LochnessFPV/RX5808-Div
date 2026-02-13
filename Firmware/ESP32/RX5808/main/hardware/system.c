@@ -15,6 +15,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "elrs_backpack.h"
+#include "diversity.h"
 #include "esp_log.h"
 
 static const char *TAG = "SYSTEM";
@@ -102,6 +103,11 @@ void system_init(void)
 	printf("timer init success!\n");	
     RX5808_Init();
 	printf("RX5808 init success!\n");
+	
+	// Initialize diversity algorithm
+	diversity_init();
+	printf("Diversity algorithm initialized!\n");
+	
 	//ws2812_init();
 	//printf("ws2812 init success!\n");
 	
