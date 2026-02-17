@@ -10,6 +10,8 @@
 #include "esp_timer.h"
 #include "nvs_flash.h"
 #include "nvs.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include <string.h>
 #include <math.h>
 
@@ -122,7 +124,8 @@ void diversity_set_mode(diversity_mode_t mode) {
  * @brief Normalize raw RSSI to 0-100 scale using calibration
  */
 uint8_t diversity_normalize_rssi(uint16_t raw, rssi_calibration_t* cal) {
-    if (!cal->calibrated) {
+    // Use uncalibrated mode if calibration not set or invalid (floor >= peak)
+    if (!cal->calibrated || cal->floor_raw >= cal->peak_raw) {
         // Fallback to simple 12-bit to 0-100 mapping
         return (uint8_t)((raw * 100) / 4095);
     }
