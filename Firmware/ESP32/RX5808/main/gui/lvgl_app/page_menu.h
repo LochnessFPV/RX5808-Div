@@ -22,13 +22,15 @@ extern "C" {
     **********************/
     typedef enum
     {
-			
-        item_scan= 0,
-			  item_setup ,
+        item_scan = 0,
+        item_calib,
+        item_bandx_select,
+        item_spectrum,
+        item_drone_finder,
+        item_setup,
         item_about,
-
         item_count
-    }menu_item_list;
+    } menu_item_list;
 
     typedef struct
     {

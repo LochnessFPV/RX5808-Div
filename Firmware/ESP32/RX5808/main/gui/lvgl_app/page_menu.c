@@ -2,6 +2,10 @@
 #include "page_about.h"
 #include "page_setup.h"
 #include "page_scan.h"
+#include "page_diversity_calib.h"
+#include "page_drone_finder.h"
+#include "page_spectrum.h"
+#include "page_bandx_channel_select.h"
 #include "page_main.h"
 #include "lvgl_stl.h"
 #include "lv_port_disp.h"
@@ -21,6 +25,10 @@ LV_FONT_DECLARE(lv_font_chinese_12);
 
 LV_IMG_DECLARE(menu_setup_icon);
 LV_IMG_DECLARE(menu_rx_icon);
+LV_IMG_DECLARE(menu_calib_icon);
+LV_IMG_DECLARE(menu_finder_icon);
+LV_IMG_DECLARE(menu_spectrum_icon);
+LV_IMG_DECLARE(menu_bandx_icon);
 LV_IMG_DECLARE(menu_about_icon);
 
 static lv_obj_t* menu_contain;
@@ -39,9 +47,9 @@ static void page_menu_style_deinit(void);
 static void menu_item_label_update(void);
 static void page_menu_item_create(lv_obj_t* parent, menu_item* item, uint8_t i);
 
-static const char icon_txt_array[menu_item_count][10] = { "Receiver","Setup","About" };
-static const char icon_txt_array_chinese[menu_item_count][12] = { "接收机 ","设置 ","关于 " };
-static const lv_img_dsc_t* icon_imagine[menu_item_count] = { &menu_rx_icon,&menu_setup_icon,&menu_about_icon };
+static const char icon_txt_array[menu_item_count][16] = { "Receiver","Calibrate","Band X Edit","Freq Analyzer","Finder","Setup","About" };
+static const char icon_txt_array_chinese[menu_item_count][12] = { "接收机 ","校准 ","X波段","频谱 ","寻机 ","设置 ","关于 " };
+static const lv_img_dsc_t* icon_imagine[menu_item_count] = { &menu_rx_icon,&menu_calib_icon,&menu_spectrum_icon,&menu_spectrum_icon,&menu_finder_icon,&menu_setup_icon,&menu_about_icon };
 
 extern const char signal_source_label_text[][10];
 extern const char signal_source_label_chinese_text[][12];
@@ -59,9 +67,25 @@ void Menu_event_callback(lv_event_t* event)
                 page_menu_exit();
                 page_setup_create();
             }
+            else if (obj == rx5808_div_menu[item_calib].item_contain) {
+                page_menu_exit();
+                page_diversity_calib_create();
+            }
             else if (obj == rx5808_div_menu[item_scan].item_contain) {
                 page_menu_exit();
                 page_scan_create();
+            }
+            else if (obj == rx5808_div_menu[item_drone_finder].item_contain) {
+                page_menu_exit();
+                page_drone_finder_create();
+            }
+            else if (obj == rx5808_div_menu[item_spectrum].item_contain) {
+                page_menu_exit();
+                page_spectrum_create(false, 0);  // Normal spectrum mode
+            }
+            else if (obj == rx5808_div_menu[item_bandx_select].item_contain) {
+                page_menu_exit();
+                page_bandx_channel_select_create();  // Band X channel selection
             }
             else if (obj == rx5808_div_menu[item_about].item_contain) {
                 page_menu_exit();
@@ -216,13 +240,37 @@ static void page_menu_item_create(lv_obj_t* parent, menu_item* item, uint8_t i)
     lv_obj_remove_style_all(item->item_contain);
     lv_obj_set_size(item->item_contain, 150, 80);
     lv_obj_set_style_bg_opa(item->item_contain, (lv_opa_t)LV_OPA_COVER, LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_color(item->item_contain, lv_color_make(0, 0, 0), LV_STATE_DEFAULT);
+    
+    // Different colors for each menu item
+    switch(i) {
+        case item_scan:         lv_obj_set_style_bg_color(item->item_contain, lv_color_make(0x70, 0x00, 0x00), LV_STATE_DEFAULT); break; // Dark red
+        case item_setup:        lv_obj_set_style_bg_color(item->item_contain, lv_color_make(0x80, 0x40, 0x00), LV_STATE_DEFAULT); break; // Orange
+        case item_calib:        lv_obj_set_style_bg_color(item->item_contain, lv_color_make(0x00, 0x60, 0x00), LV_STATE_DEFAULT); break; // Green
+        case item_drone_finder: lv_obj_set_style_bg_color(item->item_contain, lv_color_make(0x00, 0x40, 0x80), LV_STATE_DEFAULT); break; // Blue
+        case item_spectrum:     lv_obj_set_style_bg_color(item->item_contain, lv_color_make(0x60, 0x00, 0x80), LV_STATE_DEFAULT); break; // Purple
+        case item_bandx_select: lv_obj_set_style_bg_color(item->item_contain, lv_color_make(0x00, 0x60, 0x60), LV_STATE_DEFAULT); break; // Cyan
+        case item_about:        lv_obj_set_style_bg_color(item->item_contain, lv_color_make(0x40, 0x40, 0x40), LV_STATE_DEFAULT); break; // Gray
+        default:                lv_obj_set_style_bg_color(item->item_contain, lv_color_make(0, 0, 0), LV_STATE_DEFAULT); break;
+    }
 
 
     item->item_imag = lv_img_create(item->item_contain);
     lv_obj_set_size(item->item_imag, 50, 50);
     lv_img_set_src(item->item_imag, icon_imagine[i]);
     lv_obj_align(item->item_imag, LV_ALIGN_LEFT_MID, 0, 0);
+    
+    // Apply different colors to each icon
+    switch(i) {
+        case item_scan:         lv_obj_set_style_img_recolor(item->item_imag, lv_color_make(0xFF, 0x40, 0x40), LV_STATE_DEFAULT); break; // Red
+        case item_setup:        lv_obj_set_style_img_recolor(item->item_imag, lv_color_make(0xFF, 0xA0, 0x00), LV_STATE_DEFAULT); break; // Orange
+        case item_calib:        lv_obj_set_style_img_recolor(item->item_imag, lv_color_make(0x00, 0xFF, 0x00), LV_STATE_DEFAULT); break; // Green
+        case item_drone_finder: lv_obj_set_style_img_recolor(item->item_imag, lv_color_make(0x40, 0xA0, 0xFF), LV_STATE_DEFAULT); break; // Blue
+        case item_spectrum:     lv_obj_set_style_img_recolor(item->item_imag, lv_color_make(0xC0, 0x40, 0xFF), LV_STATE_DEFAULT); break; // Purple
+        case item_bandx_select: lv_obj_set_style_img_recolor(item->item_imag, lv_color_make(0x00, 0xFF, 0xFF), LV_STATE_DEFAULT); break; // Cyan
+        case item_about:        lv_obj_set_style_img_recolor(item->item_imag, lv_color_make(0xC0, 0xC0, 0xC0), LV_STATE_DEFAULT); break; // Gray
+        default:                lv_obj_set_style_img_recolor(item->item_imag, lv_color_make(0xFF, 0xFF, 0xFF), LV_STATE_DEFAULT); break;
+    }
+    lv_obj_set_style_img_recolor_opa(item->item_imag, LV_OPA_50, LV_STATE_DEFAULT);
 
     item->item_title = lv_label_create(item->item_contain);
  
@@ -250,6 +298,14 @@ static void page_menu_item_create(lv_obj_t* parent, menu_item* item, uint8_t i)
         case item_setup: lv_label_set_text_fmt(item->item_label0, "BLCK:%d%%", LCD_GET_BLK());
             //lv_label_set_text_fmt(item->item_label1, beep_get_status() ? "BEEP:Open" : "BEEP:Close"); break;
             lv_label_set_text_fmt(item->item_label1, "Signal:%s",signal_source_label_text[RX5808_Get_Signal_Source()%4]); break;
+        case item_calib: lv_label_set_text_fmt(item->item_label0, "Diversity RSSI");
+            lv_label_set_text_fmt(item->item_label1, "Calibration"); break;
+        case item_drone_finder: lv_label_set_text_fmt(item->item_label0, "Locate crashed");
+            lv_label_set_text_fmt(item->item_label1, "drone by RSSI"); break;
+        case item_spectrum: lv_label_set_text_fmt(item->item_label0, "View frequency");
+            lv_label_set_text_fmt(item->item_label1, "spectrum"); break;
+        case item_bandx_select: lv_label_set_text_fmt(item->item_label0, "Customize 8");
+            lv_label_set_text_fmt(item->item_label1, "Band X channels"); break;
         case item_about: lv_label_set_text_fmt(item->item_label0, "Battery:%.3fV", Get_Battery_Voltage());
             //lv_label_set_text_fmt(item->item_label1, "LVGL:v%d.%d.%d", LVGL_VERSION_MAJOR, LVGL_VERSION_MINOR, LVGL_VERSION_PATCH); break;
             lv_label_set_text_fmt(item->item_label1, "Version:v%d.%d.%d",RX5808_VERSION_MAJOR, RX5808_VERSION_MINOR, RX5808_VERSION_PATCH);break;
@@ -269,6 +325,14 @@ static void page_menu_item_create(lv_obj_t* parent, menu_item* item, uint8_t i)
         case item_setup: lv_label_set_text_fmt(item->item_label0, "背光:%d%%", LCD_GET_BLK());
             //lv_label_set_text_fmt(item->item_label1, beep_get_status() ? "蜂鸣器:打开" : "蜂鸣器:关闭"); break;
             lv_label_set_text_fmt(item->item_label1, "信号源:%s",signal_source_label_chinese_text[RX5808_Get_Signal_Source()%4]); break;
+        case item_calib: lv_label_set_text_fmt(item->item_label0, "分集RSSI");
+            lv_label_set_text_fmt(item->item_label1, "校准"); break;
+        case item_drone_finder: lv_label_set_text_fmt(item->item_label0, "根据RSSI");
+            lv_label_set_text_fmt(item->item_label1, "定位炸机"); break;
+        case item_spectrum: lv_label_set_text_fmt(item->item_label0, "查看频率");
+            lv_label_set_text_fmt(item->item_label1, "频谱"); break;
+        case item_bandx_select: lv_label_set_text_fmt(item->item_label0, "自定义8个");
+            lv_label_set_text_fmt(item->item_label1, "X波段频道"); break;
         case item_about: lv_label_set_text_fmt(item->item_label0, "电压:%.3fV", Get_Battery_Voltage());
             //lv_label_set_text_fmt(item->item_label1, "LVGL:v%d.%d.%d", LVGL_VERSION_MAJOR, LVGL_VERSION_MINOR, LVGL_VERSION_PATCH); break;
             lv_label_set_text_fmt(item->item_label1, "版本:v%d.%d.%d",RX5808_VERSION_MAJOR, RX5808_VERSION_MINOR, RX5808_VERSION_PATCH);break;
