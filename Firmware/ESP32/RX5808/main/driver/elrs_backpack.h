@@ -26,6 +26,7 @@
 #define VRX_BAND_F                      3
 #define VRX_BAND_R                      4
 #define VRX_BAND_L                      5
+#define VRX_BAND_X                      6  // User favorites (local only, not ELRS controlled)
 
 // Configuration
 #define ELRS_UART_NUM                   UART_NUM_1

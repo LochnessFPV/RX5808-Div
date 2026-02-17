@@ -12,6 +12,12 @@ static const char *TAG = "ELRS_BACKPACK";
 static QueueHandle_t uart_queue;
 static bool backpack_enabled = false;
 
+// Check if ELRS backpack is enabled in settings
+bool elrs_is_enabled(void)
+{
+    return (RX5808_Get_ELRS_Backpack_Enabled() != 0);
+}
+
 // CRC8 DVB-S2 calculation (used by CRSF protocol)
 uint8_t elrs_crc8_dvb_s2(uint8_t crc, uint8_t a)
 {
@@ -39,6 +45,10 @@ uint8_t elrs_calculate_crc(uint8_t *data, uint8_t length)
 // Send CRSF frame via UART
 void elrs_send_crsf_frame(crsf_frame_t *frame)
 {
+    if (!elrs_is_enabled()) {
+        ESP_LOGW(TAG, "ELRS Backpack disabled - frame not sent");
+        return;
+    }
     if (!backpack_enabled) return;
     
     uint8_t buffer[ELRS_RX_BUFFER_SIZE];
@@ -63,8 +73,12 @@ void elrs_send_crsf_frame(crsf_frame_t *frame)
 // Convert RX5808 band/channel to frequency
 uint16_t elrs_band_channel_to_freq(uint8_t band, uint8_t channel)
 {
-    if (band >= 6 || channel >= 8) {
+    if (band >= 7 || channel >= 8) {
         return 5800; // Default fallback
+    }
+    // For Band X, use custom frequencies
+    if (band == 6) {
+        return RX5808_Get_Band_X_Freq(channel);
     }
     return Rx5808_Freq[band][channel];
 }
@@ -76,11 +90,12 @@ void elrs_freq_to_band_channel(uint16_t freq, uint8_t *band, uint8_t *channel)
     *band = 0;
     *channel = 0;
     
-    for (uint8_t b = 0; b < 6; b++) {
+    for (uint8_t b = 0; b < 7; b++) {
         for (uint8_t c = 0; c < 8; c++) {
-            uint16_t diff = (freq > Rx5808_Freq[b][c]) ? 
-                           (freq - Rx5808_Freq[b][c]) : 
-                           (Rx5808_Freq[b][c] - freq);
+            uint16_t target_freq = (b == 6) ? RX5808_Get_Band_X_Freq(c) : Rx5808_Freq[b][c];
+            uint16_t diff = (freq > target_freq) ? 
+                           (freq - target_freq) : 
+                           (target_freq - freq);
             if (diff < min_diff) {
                 min_diff = diff;
                 *band = b;
@@ -137,7 +152,7 @@ void elrs_process_msp_command(uint8_t *payload, uint8_t length)
             config.channel = channel_count;
             config.power = 0;
             config.pit_mode = 0;
-            config.freq = Rx5808_Freq[Chx_count][channel_count];
+            config.freq = RX5808_Get_Current_Freq();
             elrs_send_vrx_config(&config);
             break;
             
@@ -158,7 +173,7 @@ void elrs_process_msp_command(uint8_t *payload, uint8_t length)
                     elrs_freq_to_band_channel(new_freq, &new_band, &new_channel);
                     Chx_count = new_band;
                     channel_count = new_channel;
-                } else if (new_band < 6 && new_channel < 8) {
+                } else if (new_band < 7 && new_channel < 8) {
                     // Use band/channel
                     Chx_count = new_band;
                     channel_count = new_channel;
@@ -170,7 +185,7 @@ void elrs_process_msp_command(uint8_t *payload, uint8_t length)
                 config.channel = channel_count;
                 config.power = 0;
                 config.pit_mode = 0;
-                config.freq = Rx5808_Freq[Chx_count][channel_count];
+                config.freq = RX5808_Get_Current_Freq();
                 elrs_send_vrx_config(&config);
             }
             break;
@@ -269,6 +284,13 @@ void elrs_backpack_task(void *param)
 // Initialize ExpressLRS Backpack UART
 void elrs_backpack_init(void)
 {
+    // Check if ELRS backpack is enabled in settings
+    if (!elrs_is_enabled()) {
+        ESP_LOGI(TAG, "ExpressLRS Backpack disabled in settings - not initializing");
+        backpack_enabled = false;
+        return;
+    }
+    
     ESP_LOGI(TAG, "Initializing ExpressLRS Backpack");
     
     // Configure UART parameters
