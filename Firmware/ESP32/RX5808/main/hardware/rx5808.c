@@ -7,7 +7,16 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 #include "hwvers.h"
+#include "nvs_flash.h"
+#include "nvs_flash.h"
+#include "nvs.h"
+
+static const char *TAG = "RX5808";
+
+// SPI Bus Mutex - protects soft SPI from concurrent access
+static SemaphoreHandle_t spi_mutex = NULL;
 
 
 #define Synthesizer_Register_A 				              0x00  
@@ -25,7 +34,11 @@
 
 // Performance optimization settings
 #define RSSI_FILTER_SIZE 4              // Moving average filter size (reduces jitter)
-#define RX5808_FREQ_SETTLING_TIME_MS 50 // Reduced from 150ms for faster channel switching  
+#define RX5808_FREQ_SETTLING_TIME_MS 50 // Reduced from 150ms for faster channel switching
+
+// ExpressLRS Backpack Detection
+#define BACKPACK_DETECTION_ENABLED 1     // Set to 0 to disable backpack detection
+#define BACKPACK_CHECK_INTERVAL_MS 500   // Check for backpack activity every 500ms  
 
 
 
@@ -42,6 +55,28 @@ static uint16_t rssi0_filter_buffer[RSSI_FILTER_SIZE] = {0};
 static uint16_t rssi1_filter_buffer[RSSI_FILTER_SIZE] = {0};
 static uint8_t rssi_filter_index = 0;
 
+// Band X (User Favorites) custom frequency storage
+// These are modifiable copies of Band X frequencies
+static uint16_t Band_X_Custom_Freq[8] = {5740,5760,5780,5800,5820,5840,5860,5880};
+static bool Band_X_Loaded = false;
+
+// NVS keys for Band X
+#define NVS_NAMESPACE_BANDX "band_x"
+#define NVS_KEY_BANDX_CH1 "x_ch1"
+#define NVS_KEY_BANDX_CH2 "x_ch2"
+#define NVS_KEY_BANDX_CH3 "x_ch3"
+#define NVS_KEY_BANDX_CH4 "x_ch4"
+#define NVS_KEY_BANDX_CH5 "x_ch5"
+#define NVS_KEY_BANDX_CH6 "x_ch6"
+#define NVS_KEY_BANDX_CH7 "x_ch7"
+#define NVS_KEY_BANDX_CH8 "x_ch8"
+
+// ExpressLRS Backpack Detection State
+static bool backpack_detected = false;
+static uint16_t expected_frequency = 5800;  // Track what frequency we last set
+static uint32_t last_freq_set_time_ms = 0;
+static uint32_t backpack_detected_time_ms = 0;
+
 volatile int8_t channel_count = 0;
 volatile int8_t Chx_count = 0;
 volatile uint8_t Rx5808_channel;
@@ -52,16 +87,20 @@ volatile uint16_t Rx5808_RSSI_Ad_Max1=4095;
 volatile uint16_t Rx5808_OSD_Format=0;
 volatile uint16_t Rx5808_Language=1;
 volatile uint16_t Rx5808_Signal_Source=0;
+volatile uint16_t Rx5808_ELRS_Backpack_Enabled=0;  // OFF by default
+volatile uint16_t Rx5808_CPU_Freq=1;  // 160MHz by default (0=80MHz, 1=160MHz, 2=240MHz)
+volatile uint16_t Rx5808_GUI_Update_Rate=1;  // 70ms (14Hz) by default (0=100ms/10Hz, 1=70ms/14Hz, 2=50ms/20Hz, 3=40ms/25Hz, 4=20ms/50Hz, 5=10ms/100Hz)
 
-const char Rx5808_ChxMap[6] = {'A', 'B', 'E', 'F', 'R', 'L'};
-const uint16_t Rx5808_Freq[6][8]=
+const char Rx5808_ChxMap[7] = {'A', 'B', 'E', 'F', 'R', 'L', 'X'};
+const uint16_t Rx5808_Freq[7][8]=
 {
 	{5865,5845,5825,5805,5785,5765,5745,5725},	    //A	CH1-8 (BOSCAM_A)
     {5733,5752,5771,5790,5809,5828,5847,5866},		//B	CH1-8 (BOSCAM_B)
     {5705,5685,5665,5800,5885,5905,5800,5800},		//E	CH1-8 (BOSCAM_E) - Ch4,7,8 use F4 (disabled in standard VTX)
     {5740,5760,5780,5800,5820,5840,5860,5880},		//F	CH1-8 (FATSHARK)
     {5658,5695,5732,5769,5806,5843,5880,5917},		//R	CH1-8 (RACEBAND)
-    {5362,5399,5436,5473,5510,5547,5584,5621}		//L	CH1-8 (LOWBAND)
+    {5362,5399,5436,5473,5510,5547,5584,5621},		//L	CH1-8 (LOWBAND)
+    {5658,5695,5732,5769,5806,5843,5880,5917}		//X	CH1-8 (USER FAVORITES - default to RACEBAND)
 };
 
 static esp_adc_cal_characteristics_t adc1_chars;
@@ -129,6 +168,11 @@ void RX5808_RSSI_ADC_Init()
 
 void RX5808_Init()
 {
+    // Create SPI mutex for bus protection
+    spi_mutex = xSemaphoreCreateMutex();
+    if (spi_mutex == NULL) {
+        ESP_LOGE(TAG, "Failed to create SPI mutex!");
+    }
 
     gpio_set_direction(RX5808_SCLK, GPIO_MODE_OUTPUT);	
 	gpio_set_direction(RX5808_MOSI, GPIO_MODE_OUTPUT);	
@@ -144,7 +188,10 @@ void RX5808_Init()
 
 	Send_Register_Data(Power_Down_Control_Register,0x10DF3);
 
-	RX5808_Set_Freq(Rx5808_Freq[Chx_count][channel_count]);
+	// Initialize Band X from NVS
+	RX5808_Init_Band_X();
+
+	RX5808_Set_Freq(RX5808_Get_Current_Freq());
 
 	RX5808_RSSI_ADC_Init();	
 
@@ -187,6 +234,11 @@ void Soft_SPI_Send_One_Bit(uint8_t bit)
 
 void Send_Register_Data(uint8_t addr,uint32_t data)   
 {
+  // Take mutex before accessing SPI bus
+  if (spi_mutex != NULL) {
+      xSemaphoreTake(spi_mutex, portMAX_DELAY);
+  }
+  
   gpio_set_level(RX5808_CS, 0);
   uint8_t read_write=1;   //1 write     0 read
  
@@ -199,10 +251,23 @@ void Send_Register_Data(uint8_t addr,uint32_t data)
 	gpio_set_level(RX5808_CS, 1);
 	gpio_set_level(RX5808_SCLK, 0);
 	gpio_set_level(RX5808_MOSI, 0);
+	
+	// Release mutex after SPI access
+	if (spi_mutex != NULL) {
+	    xSemaphoreGive(spi_mutex);
+	}
 }
 
 void RX5808_Set_Freq(uint16_t Fre)   
 {
+#if BACKPACK_DETECTION_ENABLED
+	// Check if backpack is active - if so, skip SPI control
+	if (backpack_detected) {
+		ESP_LOGW(TAG, "Backpack active - skipping frequency change to %d MHz", Fre);
+		return;
+	}
+#endif
+
 	uint16_t F_LO=(Fre-479)>>1;
 	uint16_t N;
 	uint16_t A;
@@ -211,6 +276,10 @@ void RX5808_Set_Freq(uint16_t Fre)
 	A=F_LO%32;    
 
 	Send_Register_Data(Synthesizer_Register_B,N<<7|A);
+	
+	// Track expected frequency and timestamp
+	expected_frequency = Fre;
+	last_freq_set_time_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
 	
 	// Wait for RX5808 to settle on new frequency (optimized for faster switching)
 	vTaskDelay(RX5808_FREQ_SETTLING_TIME_MS / portTICK_PERIOD_MS);
@@ -258,6 +327,28 @@ void RX5808_Set_Signal_Source(uint16_t value)
     Rx5808_Signal_Source = value;
 }
 
+void RX5808_Set_ELRS_Backpack_Enabled(uint16_t value)
+{
+    Rx5808_ELRS_Backpack_Enabled = value;
+    ESP_LOGI(TAG, "ELRS Backpack: %s", value ? "ENABLED" : "DISABLED");
+}
+
+void RX5808_Set_CPU_Freq(uint16_t value)
+{
+    if (value > 2) value = 1;  // Default to 160MHz if invalid
+    Rx5808_CPU_Freq = value;
+    ESP_LOGI(TAG, "CPU Frequency set to: %s", value == 0 ? "80MHz" : (value == 1 ? "160MHz" : "240MHz"));
+}
+
+void RX5808_Set_GUI_Update_Rate(uint16_t value)
+{
+    if (value > 5) value = 1;  // Default to 70ms if invalid
+    Rx5808_GUI_Update_Rate = value;
+    const uint16_t rates_ms[] = {100, 70, 50, 40, 20, 10};
+    const char* rates_str[] = {"10Hz/100ms", "14Hz/70ms", "20Hz/50ms", "25Hz/40ms", "50Hz/20ms", "100Hz/10ms"};
+    ESP_LOGI(TAG, "GUI/Diversity Update Rate set to: %s", rates_str[value]);
+}
+
 uint16_t Rx5808_Get_Channel()
 {
 	return Rx5808_channel;
@@ -294,6 +385,21 @@ uint16_t RX5808_Get_Language()
 uint16_t RX5808_Get_Signal_Source()
 {
     return Rx5808_Signal_Source;
+}
+
+uint16_t RX5808_Get_ELRS_Backpack_Enabled()
+{
+    return Rx5808_ELRS_Backpack_Enabled;
+}
+
+uint16_t RX5808_Get_CPU_Freq()
+{
+    return Rx5808_CPU_Freq;
+}
+
+uint16_t RX5808_Get_GUI_Update_Rate()
+{
+    return Rx5808_GUI_Update_Rate;
 }
 
 bool RX5808_Calib_RSSI(uint16_t min0,uint16_t max0,uint16_t min1,uint16_t max1)
@@ -424,8 +530,259 @@ void DMA2_Stream0_IRQHandler(void)
 
 		}
 	//	(count==100)?(count=0):(++count);
-	vTaskDelay(10 / portTICK_PERIOD_MS);
+	vTaskDelay(25 / portTICK_PERIOD_MS);  // Changed from 10ms to 25ms to reduce ADC polling rate (thermal optimization)
 	}
 		
 }
+
+// ============================================================================
+// ExpressLRS Backpack Detection Functions
+// ============================================================================
+
+/**
+ * @brief Check for ExpressLRS backpack activity
+ * 
+ * This function should be called periodically (every 500ms) to detect if an
+ * ExpressLRS VRX backpack is controlling the RX5808 via the shared SPI bus.
+ * 
+ * Detection method:
+ * - Monitors RSSI stability patterns
+ * - If ESP32 hasn't set frequency recently but RSSI is stable, assume backpack control
+ * - Auto-recovery: If backpack appears gone, try to reclaim SPI bus
+ */
+void RX5808_Check_Backpack_Activity(void)
+{
+#if BACKPACK_DETECTION_ENABLED
+	uint32_t current_time_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
+	
+	// If we haven't tried to set frequency in last 2 seconds
+	if ((current_time_ms - last_freq_set_time_ms) > 2000) {
+		
+		// Check RSSI stability - if both receivers show signal, backpack might be controlling
+		uint16_t rssi0 = adc_converted_value[0];
+		uint16_t rssi1 = adc_converted_value[1];
+		
+		// If RSSI values are significantly above noise floor, assume external control
+		if ((rssi0 > 200 || rssi1 > 200) && !backpack_detected) {
+			backpack_detected = true;
+			backpack_detected_time_ms = current_time_ms;
+			ESP_LOGW(TAG, "ExpressLRS Backpack detected - ESP32 control suspended");
+		}
+		
+	} else {
+		// We recently tried to set frequency, so we're in control
+		if (backpack_detected && (current_time_ms - backpack_detected_time_ms) > 5000) {
+			// Been in backpack mode for 5 seconds, try to reclaim
+			backpack_detected = false;
+			ESP_LOGI(TAG, "Attempting to reclaim SPI bus from backpack");
+			// Re-apply our expected frequency
+			RX5808_Set_Freq(expected_frequency);
+		}
+	}
+#endif
+}
+
+/**
+ * @brief Manually set backpack detection state
+ * @param detected true if backpack is controlling, false otherwise
+ */
+void RX5808_Set_Backpack_Detected(bool detected)
+{
+	if (detected != backpack_detected) {
+		backpack_detected = detected;
+		if (detected) {
+			ESP_LOGI(TAG, "Backpack control enabled");
+		} else {
+			ESP_LOGI(TAG, "Backpack control disabled - ESP32 resume");
+			// Restore our frequency setting
+			RX5808_Set_Freq(expected_frequency);
+		}
+	}
+}
+
+/**
+ * @brief Check if backpack is currently detected
+ * @return true if backpack is controlling RX5808, false if ESP32 has control
+ */
+bool RX5808_Is_Backpack_Detected(void)
+{
+	return backpack_detected;
+}
+
+/**
+ * @brief Get expected frequency (what ESP32 last tried to set)
+ * @return Frequency in MHz
+ */
+uint16_t RX5808_Get_Expected_Frequency(void)
+{
+	return expected_frequency;
+}
+
+/**
+ * @brief Force clear backpack detection (for manual control recovery)
+ */
+void RX5808_Clear_Backpack_Detection(void)
+{
+	if (backpack_detected) {
+		ESP_LOGI(TAG, "Manually clearing backpack detection");
+		backpack_detected = false;
+		last_freq_set_time_ms = xTaskGetTickCount() * portTICK_PERIOD_MS;
+		// Re-apply frequency
+		RX5808_Set_Freq(expected_frequency);
+	}
+}
+
+/**
+ * @brief Initialize Band X - load from NVS or use defaults
+ */
+void RX5808_Init_Band_X(void)
+{
+	if (!Band_X_Loaded) {
+		RX5808_Load_Band_X_From_NVS();
+		Band_X_Loaded = true;
+		ESP_LOGI(TAG, "Band X initialized");
+	}
+}
+
+/**
+ * @brief Set custom frequency for a Band X channel
+ * @param channel Channel index (0-7)
+ * @param freq Frequency in MHz (5362-5945 MHz typical range)
+ */
+void RX5808_Set_Band_X_Freq(uint8_t channel, uint16_t freq)
+{
+	if (channel >= 8) {
+		ESP_LOGW(TAG, "Invalid Band X channel: %d", channel);
+		return;
+	}
+	
+	// Validate frequency range (typical FPV range)
+	if (freq < 5300 || freq > 5950) {
+		ESP_LOGW(TAG, "Frequency %d MHz out of typical range", freq);
+	}
+	
+	Band_X_Custom_Freq[channel] = freq;
+	ESP_LOGI(TAG, "Band X CH%d set to %d MHz", channel + 1, freq);
+}
+
+/**
+ * @brief Get custom frequency for a Band X channel
+ * @param channel Channel index (0-7)
+ * @return Frequency in MHz
+ */
+uint16_t RX5808_Get_Band_X_Freq(uint8_t channel)
+{
+	if (channel >= 8) {
+		ESP_LOGW(TAG, "Invalid Band X channel: %d", channel);
+		return 5800; // Default fallback
+	}
+	return Band_X_Custom_Freq[channel];
+}
+
+/**
+ * @brief Save Band X frequencies to NVS
+ */
+void RX5808_Save_Band_X_To_NVS(void)
+{
+	// Initialize NVS if not already done
+	esp_err_t ret = nvs_flash_init();
+	if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+		ESP_ERROR_CHECK(nvs_flash_erase());
+		ret = nvs_flash_init();
+	}
+	
+	nvs_handle_t nvs_handle;
+	esp_err_t err = nvs_open(NVS_NAMESPACE_BANDX, NVS_READWRITE, &nvs_handle);
+	
+	if (err != ESP_OK) {
+		ESP_LOGE(TAG, "Failed to open NVS for Band X save: %s", esp_err_to_name(err));
+		return;
+	}
+	
+	const char* keys[8] = {
+		NVS_KEY_BANDX_CH1, NVS_KEY_BANDX_CH2, NVS_KEY_BANDX_CH3, NVS_KEY_BANDX_CH4,
+		NVS_KEY_BANDX_CH5, NVS_KEY_BANDX_CH6, NVS_KEY_BANDX_CH7, NVS_KEY_BANDX_CH8
+	};
+	
+	for (uint8_t i = 0; i < 8; i++) {
+		err = nvs_set_u16(nvs_handle, keys[i], Band_X_Custom_Freq[i]);
+		if (err != ESP_OK) {
+			ESP_LOGW(TAG, "Failed to save Band X CH%d: %s", i + 1, esp_err_to_name(err));
+		}
+	}
+	
+	err = nvs_commit(nvs_handle);
+	if (err == ESP_OK) {
+		ESP_LOGI(TAG, "Band X frequencies saved to NVS");
+	} else {
+		ESP_LOGE(TAG, "Failed to commit Band X to NVS: %s", esp_err_to_name(err));
+	}
+	
+	nvs_close(nvs_handle);
+}
+
+/**
+ * @brief Load Band X frequencies from NVS
+ */
+void RX5808_Load_Band_X_From_NVS(void)
+{
+	nvs_handle_t nvs_handle;
+	esp_err_t err = nvs_open(NVS_NAMESPACE_BANDX, NVS_READONLY, &nvs_handle);
+	
+	if (err != ESP_OK) {
+		ESP_LOGI(TAG, "No saved Band X data, using defaults");
+		return;
+	}
+	
+	const char* keys[8] = {
+		NVS_KEY_BANDX_CH1, NVS_KEY_BANDX_CH2, NVS_KEY_BANDX_CH3, NVS_KEY_BANDX_CH4,
+		NVS_KEY_BANDX_CH5, NVS_KEY_BANDX_CH6, NVS_KEY_BANDX_CH7, NVS_KEY_BANDX_CH8
+	};
+	
+	bool any_loaded = false;
+	for (uint8_t i = 0; i < 8; i++) {
+		uint16_t freq;
+		err = nvs_get_u16(nvs_handle, keys[i], &freq);
+		if (err == ESP_OK) {
+			Band_X_Custom_Freq[i] = freq;
+			any_loaded = true;
+		}
+	}
+	
+	if (any_loaded) {
+		ESP_LOGI(TAG, "Band X frequencies loaded from NVS");
+	}
+	
+	nvs_close(nvs_handle);
+}
+
+/**
+ * @brief Check if currently on Band X 
+ * @return true if Band X is selected
+ */
+bool RX5808_Is_Band_X(void)
+{
+	return (Chx_count == 6); // Band X is index 6 (A=0, B=1, E=2, F=3, R=4, L=5, X=6)
+}
+
+/**
+ * @brief Get current frequency based on band and channel selection
+ * @return Frequency in MHz (uses Band X custom frequencies when applicable)
+ */
+uint16_t RX5808_Get_Current_Freq(void)
+{
+	// For Band X, use custom frequencies
+	if (RX5808_Is_Band_X()) {
+		return RX5808_Get_Band_X_Freq(channel_count);
+	}
+	
+	// For standard bands, use the frequency table
+	if (Chx_count < 6 && channel_count < 8) {
+		return Rx5808_Freq[Chx_count][channel_count];
+	}
+	
+	// Fallback
+	return 5800;
+}
+
 
