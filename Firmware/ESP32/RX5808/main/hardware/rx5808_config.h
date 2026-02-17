@@ -12,7 +12,7 @@
 
 
 #define  START_ANIMATION_DEFAULT  STATUS_ON
-#define  BEEP_DEFAULT             STATUS_ON
+#define  BEEP_DEFAULT             STATUS_OFF
 #define  BACKLIGHT_DEFAULT        100
 #define  FAN_SPEED_DEFAULT        100
 #define  CHANNEL_DEFAULT          0
@@ -21,8 +21,11 @@
 #define  RSSI1_MIN_DEFAULT        0
 #define  RSSI1_MAX_DEFAULT        4095
 #define  OSD_FORMAT_DEFAULT       0
-#define  LANGUAGE_DEFAULT         1               //chinese
+#define  LANGUAGE_DEFAULT         0               //English
 #define  SIGNAL_SOURCE_DEFAULT    0               //auto
+#define  ELRS_BACKPACK_DEFAULT    STATUS_OFF      //OFF by default for safety
+#define  CPU_FREQ_DEFAULT         1               //160MHz (0=80MHz, 1=160MHz, 2=240MHz)
+#define  GUI_UPDATE_RATE_DEFAULT  1               //70ms = 14Hz (0=100ms/10Hz, 1=70ms/14Hz, 2=50ms/20Hz, 3=40ms/25Hz, 4=20ms/50Hz, 5=10ms/100Hz)
 
 #define  SETUP_ID_DEFAULT         0x1234
 
@@ -41,6 +44,9 @@ typedef enum
         rx5808_div_config_osd_format,
 		rx5808_div_config_language_set,
 		rx5808_div_config_signal_source,
+		rx5808_div_config_elrs_backpack,
+		rx5808_div_config_cpu_freq,
+		rx5808_div_config_gui_update_rate,
 		rx5808_div_config_setup_id,
 		rx5808_div_config_setup_count,
 }rx5808_div_setup_enum;

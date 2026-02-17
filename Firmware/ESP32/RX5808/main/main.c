@@ -14,6 +14,6 @@ void app_main(void)
     lvgl_init();
     while(1){
     lv_task_handler();
-    vTaskDelay(10 / portTICK_PERIOD_MS);
+    vTaskDelay(20 / portTICK_PERIOD_MS);  // Changed from 10ms to 20ms (50Hz loop for thermal optimization)
     }
 }
