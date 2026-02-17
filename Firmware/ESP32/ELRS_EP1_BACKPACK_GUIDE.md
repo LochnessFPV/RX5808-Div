@@ -177,27 +177,54 @@ After flashing:
 | GND              | ⚫ Black   | GND              | GND        |
 | VCC (3.3-5V)     | 🔴 Red     | 3.3V or 5V       | 3V3 or VIN |
 
-**⚠️ CRITICAL:**
-- TX connects to RX (crossover!)
-- RX connects to TX (crossover!)
-- GND to GND (common ground)
-- Check EP1 voltage: 3.3V or 5V compatible
+**⚠️ CRITICAL NOTES:**
+- This is **SPI wiring**, NOT UART! BOOT/RX/TX pads are repurposed for SPI signals
+- Wire directly to **RX5808 bottom board pads**, not ESP32 top board
+- ESP32 firmware requires **NO modifications** - backpack controls RX5808 independently
+- When backpack is active, ESP32 cannot control frequency (conflict on SPI bus)
+- Use SteadyView wiring diagram as reference: https://github.com/ExpressLRS/Backpack/wiki/SkyZone-Wiring.jpg
 
-### **EP1 Pinout (Standard ExpressLRS RX)**
+### **Locating RX5808 Bottom Board Pads**
+
+The RX5808 bottom board ("BUT" folder in hardware files) has exposed pads or pins for SPI:
 
 ```
-EP1 Top View (looking at pins):
-┌─────────────────┐
-│  [Antenna]      │
-│                 │
-│  ● ● ● ● ● ●   │
-│  1 2 3 4 5 6   │
-└─────────────────┘
+RX5808 Bottom Board - Connector Pinout (to TOP board):
+┌─────────────────────────────────────────┐
+│ Pin  Function    EP1 Connection         │
+├─────────────────────────────────────────┤
+│  1   CLK         ← BOOT pad (Blue)      │
+│  2   DATA        ← RX pad (Green)       │
+│  3   CS          ← TX pad (Yellow)      │
+│  4   ?           Not used               │
+│  5   ?           Not used               │
+│  6   ?           Not used               │
+│  7   GND         ← GND (Black)          │
+│  8   ?           Not used               │
+│  9   5V          ← VCC (Red)            │
+│ ...  ...         ...                    │
+└─────────────────────────────────────────┘
+```
 
-Pin 1: VCC (3.3-5V)
-Pin 2: GND
-Pin 3: RX  → Connect to ESP32 GPIO17 (TX)
-Pin 4: TX  → Connect to ESP32 GPIO16 (RX)
+**Alternative:** Solder directly to RX5808 chip SPI pads if pins not accessible.
+
+### **EP1 Pad Locations (Repurposed for SPI)**
+
+```
+EP1 Board (Component Side):
+┌───────────────────────────┐
+│    [WiFi Antenna]         │
+│                           │
+│  BOOT ●  ← CLK signal     │
+│   GND ●                   │
+│    RX ●  ← DATA signal    │
+│    TX ●  ← CS signal      │
+│   VCC ●  ← 5V power       │
+│    EN ●  (not used)       │
+└───────────────────────────┘
+```
+
+**Note:** You'll need to solder wires to BOOT, RX, TX, GND, and VCC pads on EP1.
 Pin 5: (optional telemetry)
 Pin 6: (optional)
 ```
@@ -215,92 +242,101 @@ Pin 6: (optional)
 
 ### **Step-by-Step Wiring:**
 
-1. **Power off everything**
-2. **Identify EP1 pins** (use multimeter to verify)
-3. **Connect wires:**
+1. **Disassemble goggles** - remove TOP board to access BOTTOM board
+2. **Identify RX5808 bottom board SPI pads/pins** (CLK, DATA, CS, GND, 5V)
+3. **Prepare EP1:**
+   - Solder 5 wires to: BOOT, RX, TX, GND, VCC pads
+   - Use thin wire (~28-30 AWG)
+   - Keep wires short (<10cm) for signal integrity
+4. **Connect wires:**
    ```
-   EP1 TX → ESP32 GPIO16 (RX)
-   EP1 RX → ESP32 GPIO17 (TX)
-   EP1 GND → ESP32 GND
-   EP1 VCC → ESP32 3.3V (if EP1 is 3.3V) or 5V (if EP1 is 5V)
+   EP1 BOOT → RX5808 CLK  (Pin 1)
+   EP1 RX   → RX5808 DATA (Pin 2)
+   EP1 TX   → RX5808 CS   (Pin 3)
+   EP1 GND  → RX5808 GND  (Pin 7)
+   EP1 VCC  → RX5808 5V   (Pin 9)
    ```
-4. **Double-check connections** (TX→RX, RX→TX!)
-5. **Secure wires** (twist ties, heat shrink, or hot glue)
+5. **Test continuity** with multimeter
+6. **Insulate connections** (heat shrink, kapton tape)
+7. **Mount EP1** externally or in spare space
+8. **Reassemble goggles**
 
 ### **Voltage Compatibility:**
 
-Most EP1 receivers work with **3.3V or 5V**. Check yours:
-- **3.3V only**: Connect to ESP32 3V3 pin
-- **5V tolerant**: Connect to ESP32 5V (VIN) pin
-- **Unknown**: Use 3.3V to be safe
+EP1 backpack mode uses **5V directly from RX5808 board**:
+- **Power source**: RX5808 Pin 9 (5V supply)
+- **Current draw**: ~80-150mA typical
+- **SPI signals**: 3.3V logic (RX5808 is 3.3V, EP1 is 5V tolerant)
 
-**ESP32 GPIO16/17 are 3.3V - DO NOT connect 5V to them directly!**
-
-If EP1 outputs 5V on TX pin, use voltage divider:
-```
-EP1 TX (5V) → [1kΩ] → [2kΩ] → GND
-                         ↓
-                    ESP32 GPIO16 (3.3V max)
-```
+**Important:** The RX5808 SPI signals are 3.3V. EP1 must be 3.3V/5V input tolerant (most ESP8285 modules are).
 
 ---
 
 ## ✅ Part 4: Testing
 
 ### **Test 1: Power On**
-```powershell
-idf.py -p COM4 monitor
-```
+1. Power on goggles with EP1 connected to RX5808 bottom board
+2. EP1 LED should blink (searching for TX backpack)
+3. RX5808 should initialize normally
 
-Expected output:
-```
-I (477) ELRS_BACKPACK: Initializing ExpressLRS Backpack
-I (477) ELRS_BACKPACK: ExpressLRS Backpack initialized (TX=17, RX=16, Baud=420000)
-I (477) ELRS_BACKPACK: ExpressLRS Backpack task started
-```
+**Note:** ESP32 firmware requires NO changes - backpack controls RX5808 independently!
 
 ### **Test 2: Wireless Connection**
-1. Power on ExpressLRS TX (in WiFi mode or normal mode)
+1. Power on ExpressLRS TX with backpack enabled
 2. EP1 LED should connect (fast blink or solid)
-3. If not connecting, check binding phrase
+3. Backpack now has SPI control of RX5808
 
-### **Test 3: VRX Control**
-1. On radio: Model Settings → VTX
-2. Select Band A, Channel 1
-3. Watch monitor output:
-   ```
-   I (5678) ELRS_BACKPACK: MSP Command: 0x58 from 0xEE
-   I (5679) ELRS_BACKPACK: Setting VRX: Band=0, Ch=0, Freq=5865
-   ```
-4. RX5808 display should change to 5865 MHz
+### **Test 3: VRX Control from Radio**
+1. On radio: ExpressLRS Lua Script → VRX Admin
+2. Select Band A, Channel 1 (5865 MHz)
+3. RX5808 should change frequency (OSD will show new frequency)
+4. Video should display on goggles
+
+### **⚠️ Important Behavior:**
+- When backpack is powered and connected, **ESP32 cannot control frequency**
+- Both backpack and ESP32 share the SPI bus to RX5808
+- To use ESP32 controls: Power off backpack or disconnect it
+- Recommended: Add physical switch to disconnect EP1 VCC when not using backpack
 
 ---
 
 ## 🔍 Troubleshooting
 
-### No UART Communication
+### No SPI Communication / Backpack Not Controlling RX5808
 
 **Check:**
-- ✅ TX→RX, RX→TX (crossover)
-- ✅ Common ground (GND connected)
-- ✅ Correct baud rate (420000)
-- ✅ EP1 is in VRX backpack mode (not standard RX mode)
+- ✅ Wired to BOTTOM board (RX5808), not TOP board (ESP32)
+- ✅ BOOT→CLK, RX→DATA, TX→CS (correct SPI mapping)
+- ✅ Common ground connected
+- ✅ 5V power stable (measure at EP1 VCC pad)
+- ✅ EP1 is in VRX backpack mode (blue LED behavior)
+- ✅ Solder joints good (no cold joints)
 
-**Test:** Disconnect TX/RX wires and short them together (loopback test)
+**Test:** Power on - EP1 LED should show connection status
 
-### EP1 Won't Connect to TX
-
-**Fix:**
-1. Binding phrase EXACTLY matches TX
-2. Same regulatory domain
-3. TX is powered on and not in WiFi mode
-4. EP1 antenna connected
-
-### Wrong Channels Selected
+### EP1 Won't Connect to TX Backpack
 
 **Fix:**
-- Verify band mapping in radio VTX table
-- Check frequency mode vs band/channel mode
+1. TX backpack enabled in ExpressLRS TX module settings
+2. Binding phrase matches (if used)
+3. TX backpack powered on
+4. EP1 antenna connected (critical for 2.4GHz)
+
+### ESP32 Controls Don't Work When Backpack Powered
+
+**Normal behavior!** Backpack and ESP32 share SPI bus.
+
+**Solutions:**
+- Power off backpack when using ESP32 controls
+- Add physical switch to EP1 VCC line
+- Use backpack OR ESP32 controls, not both simultaneously
+
+### Wrong Frequencies Selected
+
+**Fix:**
+- Verify VRX band/channel table in ExpressLRS TX Lua script
+- Ensure RX5808 was set to R8 (5917 MHz) before first backpack use
+- Check RX5808 SPI frequency compatibility
 
 ---
 
@@ -309,26 +345,45 @@ I (477) ELRS_BACKPACK: ExpressLRS Backpack task started
 **Print and keep near workbench:**
 
 ```
-═════════════════════════════════════════
-  ELRS BACKPACK → ESP32 WIRING
-═════════════════════════════════════════
-EP1 TX  (Yellow) → ESP32 GPIO16 (RX)
-EP1 RX  (Green)  → ESP32 GPIO17 (TX)  
-EP1 GND (Black)  → ESP32 GND
-EP1 VCC (Red)    → ESP32 3.3V
-═════════════════════════════════════════
-⚠️ CRITICAL: TX→RX, RX→TX (CROSSOVER!)
-═════════════════════════════════════════
+═════════════════════════════════════════════════════
+  ELRS BACKPACK → RX5808 BOTTOM BOARD (SPI WIRING)
+═════════════════════════════════════════════════════
+EP1 BOOT (Blue)  → RX5808 CLK  (Pin 1)
+EP1 RX   (Green) → RX5808 DATA (Pin 2)
+EP1 TX   (Yellow)→ RX5808 CS   (Pin 3)
+EP1 GND  (Black) → RX5808 GND  (Pin 7)
+EP1 VCC  (Red)   → RX5808 5V   (Pin 9)
+═════════════════════════════════════════════════════
+⚠️ CRITICAL: WIRE TO BOTTOM BOARD, NOT ESP32!
+⚠️ THIS IS SPI, NOT UART!
+⚠️ NO ESP32 FIRMWARE CHANGES NEEDED!
+═════════════════════════════════════════════════════
 ```
 
 ---
 
 ## 🎯 Summary
 
-1. ✅ Flash EP1 with **ENABLE_VRX_BACKPACK** in Configurator
-2. ✅ Connect EP1 to **ESP32** (not RX5808 chips!)
-3. ✅ Use GPIO16/17 (UART) with crossover wiring
-4. ✅ Test wireless control from radio
-5. ✅ Enjoy wireless channel switching! 🚁
+1. ✅ Flash EP1 with **RX5808 VRX Backpack** firmware (Generic_RX5808_backpack)
+2. ✅ Wire EP1 to **RX5808 BOTTOM board** using SPI (BOOT→CLK, RX→DATA, TX→CS)
+3. ✅ Power EP1 from RX5808 5V (Pin 9)
+4. ✅ **NO ESP32 firmware changes needed** - backpack controls RX5808 independently via SPI
+5. ✅ Enable TX backpack in ExpressLRS radio
+6. ✅ Test wireless control from radio VRX Admin menu
+7. ✅ Optional: Add switch to power off backpack when using ESP32 controls
+
+**Key Points:**
+- Backpack connects to **BOTTOM board** (RX5808 chips), not TOP board (ESP32)
+- Uses **SPI protocol**, not UART
+- ESP32 and backpack share SPI bus - only one can control at a time
+- Backpack acts as SPI master - no ESP32 code needed!
 
 **Your backpack is now ready for wireless VRX control!** 📡✨
+
+---
+
+## 📚 Additional References
+
+- ExpressLRS Official SteadyView Wiring: https://www.expresslrs.org/hardware/backpack/backpack-vrx-setup/#steadyview-backpack-connection
+- ExpressLRS Generic RX5808 Guide: https://www.expresslrs.org/hardware/backpack/backpack-vrx-setup/#generic-rx5808-connection
+- RX5808 Datasheet: https://github.com/sheaivey/rx5808-pro-diversity/blob/master/docs/rx5808-SMD-datasheet.pdf
