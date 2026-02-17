@@ -14,9 +14,10 @@
 #include "hwvers.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "elrs_backpack.h"
 #include "diversity.h"
 #include "esp_log.h"
+#include "esp_pm.h"
+#include "esp_clk_tree.h"
 
 static const char *TAG = "SYSTEM";
 
@@ -49,6 +50,45 @@ void LED_Init()
 							    NULL, 
 								0 );
 	
+}
+
+// Apply CPU frequency based on user setting
+void system_apply_cpu_freq(uint16_t freq_setting)
+{
+    uint32_t freq_mhz;
+    
+    // Map setting to actual frequency
+    switch (freq_setting) {
+        case 0:  freq_mhz = 80;  break;
+        case 1:  freq_mhz = 160; break;
+        case 2:  freq_mhz = 240; break;
+        default: freq_mhz = 160; break;  // Default to 160MHz
+    }
+    
+    ESP_LOGI(TAG, "Applying CPU frequency: %lu MHz", freq_mhz);
+    
+    #ifdef CONFIG_PM_ENABLE
+    // Use power management to set frequency dynamically
+    esp_pm_config_esp32_t pm_config = {
+        .max_freq_mhz = freq_mhz,
+        .min_freq_mhz = freq_mhz,  // Keep constant for predictable performance
+        .light_sleep_enable = false
+    };
+    
+    esp_err_t ret = esp_pm_configure(&pm_config);
+    if (ret == ESP_OK) {
+        ESP_LOGI(TAG, "CPU frequency successfully set to %lu MHz", freq_mhz);
+    } else {
+        ESP_LOGW(TAG, "Failed to set CPU frequency via PM (error %d), trying direct method", ret);
+    }
+    #else
+    // Power management not enabled, log current frequency
+    uint32_t current_freq = 0;
+    esp_clk_tree_src_get_freq_hz(SOC_MOD_CLK_CPU, ESP_CLK_TREE_SRC_FREQ_PRECISION_CACHED, &current_freq);
+    ESP_LOGI(TAG, "PM not enabled. Current CPU frequency: %lu MHz (requested: %lu MHz)", 
+             current_freq / 1000000, freq_mhz);
+    ESP_LOGI(TAG, "To enable dynamic frequency scaling, set CONFIG_PM_ENABLE=y in sdkconfig");
+    #endif
 }
 
 esp_timer_handle_t esp_timer_tick = 0;
@@ -95,6 +135,10 @@ void system_init(void)
 	printf("24cxx init success!\n");
  	rx5808_div_setup_load();
 	printf("setup load success!\n");
+	
+	// Apply CPU frequency from settings
+	system_apply_cpu_freq(RX5808_Get_CPU_Freq());
+	
  	LED_Init();
 	printf("led init success!\n"); 	
  	Beep_Init();
@@ -111,11 +155,8 @@ void system_init(void)
 	//ws2812_init();
 	//printf("ws2812 init success!\n");
 	
-	// Initialize ExpressLRS Backpack (optional - comment out if not using)
-	#ifdef CONFIG_ELRS_BACKPACK_ENABLE
-	elrs_backpack_init();
-	printf("ExpressLRS backpack enabled and initialized!\n");
-	#endif
+	// ExpressLRS Backpack support removed - backpack is now independent SPI master
+	// No ESP32 firmware integration needed (backpack controls RX5808 directly)
 	
 	//while(1);
 
