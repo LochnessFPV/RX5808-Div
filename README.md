@@ -1,7 +1,7 @@
 # RX5808-Div
 **Diversity FPV Receiver Module with LVGL UI and ExpressLRS Backpack Support**
 
-[![Firmware Version](https://img.shields.io/badge/firmware-v1.6.0-blue.svg)](Firmware/ESP32/CHANGELOG.md)
+[![Firmware Version](https://img.shields.io/badge/firmware-v1.7.0-blue.svg)](Firmware/ESP32/CHANGELOG.md)
 [![Platform](https://img.shields.io/badge/platform-ESP32-green.svg)](Firmware/ESP32/)
 [![License](https://img.shields.io/badge/license-Open%20Source-orange.svg)](LICENSE)
 
@@ -27,6 +27,7 @@
 
 ## 📋 Table of Contents
 
+- [What's New in v1.7.0](#-whats-new-in-v170)
 - [What's New in v1.6.0](#-whats-new-in-v160)
 - [User Interface](#-user-interface)
 - [Diversity Modes](#-diversity-modes)
@@ -37,6 +38,29 @@
 - [Firmware Build & Flash](#-firmware-build--flash)
 - [Documentation](#-documentation)
 - [Contributing](#-contributing)
+
+## 🆕 What's New in v1.7.0
+
+### 🔧 ELRS Backpack Protocol Fix (Major Update)
+
+**Implementation Corrected:** The ExpressLRS Backpack wireless VTX control now uses the correct MSP protocol commands, ensuring reliable channel switching via EdgeTX/OpenTX VTX Admin.
+
+#### ✅ Technical Improvements:
+- **Correct Protocol Implementation**: Now uses `MSP_SET_VTX_CONFIG (0x0059)` for actual VTX channel commands
+- **Proper Byte Extraction**: Channel index correctly read from `byte[0]` instead of `byte[2]`
+- **Telemetry Filtering**: `MSP_ELRS_BACKPACK_CRSF_TLM (0x0011)` telemetry packets properly ignored
+- **4-Byte Payload Structure**: Correct parsing of `[channel_idx, freq_msb, power_idx, pit_mode]`
+- **Hardware Verified**: Tested with EdgeTX VTX Admin - B4, R7, L3 channel changes confirmed working
+
+#### 🐛 What Was Fixed:
+Previous implementation incorrectly used telemetry wrapper packets (`0x0011`) as channel commands and extracted channel data from wrong byte offset (`byte[2]` instead of `byte[0]`). This caused erratic behavior and unreliable channel switching. The fix implements the official ExpressLRS Backpack protocol specification.
+
+#### 👨‍💻 For Developers:
+- **Commit `15f72b9`**: Protocol definition corrections in `elrs_msp.h`
+- **Commit `5643d35`**: Proper VTX channel command handling in `elrs_backpack.c`
+- **Channel Index Range**: 0-47 (6 bands × 8 channels)
+- **Protocol Details**: TX broadcasts telemetry status every ~5s (ignored), VTX Admin commands arrive on user action (processed)
+- **MSP v2 Format**: `$X<type><flags><func_l><func_h><size_l><size_h><payload><crc8>`
 
 ## 🆕 What's New in v1.6.0
 
@@ -268,11 +292,16 @@ ExpressLRS Backpack allows you to control your video receiver (VRX) wirelessly f
 
 ### Technical Details
 
-- **Protocol:** CRSF (Crossfire) over UART
-- **Baud Rate:** 420000 bps
-- **Commands:** MSP VTX_CONFIG (0x58, 0x88)
+- **Protocol:** MSP v2 over ESP-NOW (WiFi peer-to-peer)
+- **MSP Commands:**
+  - `MSP_SET_VTX_CONFIG (0x0059)` - VTX channel commands (4 bytes)
+  - `MSP_ELRS_BACKPACK_CRSF_TLM (0x0011)` - Telemetry wrapper (ignored)
+- **Payload Structure:** `[channel_idx, freq_msb, power_idx, pit_mode]`
+- **Channel Index:** Byte 0, range 0-47 (6 bands × 8 channels)
 - **Supported Bands:** A, B, E, F, R, L (5658-5917MHz)
-- **Pin Configuration:** GPIO16 (RX), GPIO17 (TX)
+- **WiFi Channel:** Channel 1 (2412 MHz)
+- **Binding:** UID-based MAC address sanitization
+- **CRC:** CRC8-DVB-S2 validation
 
 ## 🔧 Hardware Design
 
@@ -363,9 +392,16 @@ If you find this project useful, please consider giving it a star! ⭐
 
 ---
 
-**Current Version:** v1.6.0 | [View Changelog](Firmware/ESP32/CHANGELOG.md)
+**Current Version:** v1.7.0 | [View Changelog](Firmware/ESP32/CHANGELOG.md)
 
-**What's New:**
+**What's New in v1.7.0:**
+- ✅ **ELRS Backpack Protocol Fix** - Corrected MSP command implementation (0x0059 vs 0x0011)
+- ✅ **Proper Channel Extraction** - Fixed byte offset (byte[0] instead of byte[2])
+- ✅ **Hardware Verified** - Tested working with EdgeTX VTX Admin (B4, R7, L3 channels)
+- ✅ **Telemetry Filtering** - Properly ignores broadcast telemetry packets
+- ✅ **Official Protocol Compliance** - Now follows ExpressLRS Backpack specification
+
+**Previous Release (v1.6.0):**
 - Color-coded menu items with custom icons
 - Band X custom channel editor (8 programmable channels)
 - CPU frequency control (80/160/240MHz)
