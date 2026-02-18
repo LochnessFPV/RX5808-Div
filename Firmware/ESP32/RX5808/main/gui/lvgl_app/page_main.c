@@ -247,6 +247,33 @@ static void page_main_update(lv_timer_t* tmr)
     RX5808_Check_Backpack_Activity();
     #endif
     
+    // Check for remote channel changes (e.g., from ELRS backpack)
+    static uint8_t last_channel = 0xFF;  // Initialize to invalid value
+    uint8_t current_channel = Rx5808_Get_Channel();
+
+    if (current_channel != last_channel && current_channel <= 47) {
+        // Channel changed remotely - update display
+        last_channel = current_channel;
+        uint8_t band = current_channel / 8;
+        uint8_t chan = current_channel % 8;
+
+        // Update global band/channel state
+        Chx_count = band;
+        channel_count = chan;
+
+        // Update frequency display based on band type
+        if (band == 6) {
+            // Band X (custom frequencies)
+            uint16_t freq = RX5808_Get_Band_X_Freq(chan);
+            fre_label_update_band_x(freq);
+            lv_label_set_text_fmt(lv_channel_label, "X%d", chan + 1);
+        } else {
+            // Standard bands (A/B/E/F/R/L)
+            fre_label_update(band, chan);
+            lv_label_set_text_fmt(lv_channel_label, "%c%d", Rx5808_ChxMap[band], chan + 1);
+        }
+    }
+    
     int rssi0 = (int)Rx5808_Get_Precentage0();
     int rssi1 = (int)Rx5808_Get_Precentage1();
     

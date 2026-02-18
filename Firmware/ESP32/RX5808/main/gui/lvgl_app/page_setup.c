@@ -11,6 +11,10 @@
 #include "diversity.h"
 #include "system.h"
 
+#ifdef ELRS_BACKPACK_ENABLE
+#include "elrs_backpack.h"
+#endif
+
 LV_FONT_DECLARE(lv_font_chinese_12);
 
 #define page_setup_anim_enter  lv_anim_path_bounce
@@ -32,13 +36,18 @@ static lv_obj_t* signal_source_label;
 static lv_obj_t* diversity_mode_label;
 static lv_obj_t* cpu_freq_label;
 static lv_obj_t* gui_update_rate_label;
-static lv_obj_t* elrs_backpack_label;
+#ifdef ELRS_BACKPACK_ENABLE
+static lv_obj_t* elrs_bind_button_label;  // "ELRS BP" title
+static lv_obj_t* elrs_bind_button;        // Button with "BIND"/"UNBIND"/"CANCEL" label
+static lv_obj_t* elrs_status_value;       // "Bound"/"Unbound"/"Binding..." status text
+static lv_timer_t* elrs_status_timer = NULL;
+static elrs_bind_state_t last_elrs_state = ELRS_STATE_UNBOUND;
+#endif
 static lv_obj_t* exit_label;
 static lv_obj_t* back_light_bar;
 static lv_obj_t* fan_speed_bar;
 static lv_obj_t* boot_animation_switch;
 static lv_obj_t* beep_switch;
-static lv_obj_t* elrs_backpack_switch;
 static lv_obj_t* osd_format_setup_label;
 static lv_obj_t* language_setup_label;
 static lv_obj_t* signal_source_setup_label;
@@ -65,18 +74,61 @@ static uint32_t gui_update_rate_selid = 65532;
 
 static lv_group_t* setup_group;
 
-static lv_style_t style_label;
+// ELRS: No longer a simple bool - binding managed through ELRS_Backpack API
 static lv_style_t style_setup_item;
+static lv_style_t style_label;
 
 static uint8_t setup_back_light;
 static int8_t setup_fan_speed;
 static bool  boot_animation_state;
 static bool  beep_state;
-static bool  elrs_backpack_state;
 
 static void page_setup_exit(void);
 static void page_setup_style_deinit(void);
 static void page_setup_set_language(uint16_t language);
+
+#ifdef ELRS_BACKPACK_ENABLE
+// ELRS Status Update Timer Callback (500ms interval)
+static void elrs_status_update(lv_timer_t* timer) {
+    elrs_bind_state_t state = ELRS_Backpack_Get_State();
+    
+    // Update UI based on state changes
+    if (state != last_elrs_state) {
+        switch (state) {
+            case ELRS_STATE_UNBOUND:
+                lv_label_set_text(elrs_bind_button, "BIND");
+                lv_label_set_text(elrs_status_value, "Unbound");
+                break;
+                
+            case ELRS_STATE_BOUND:
+                lv_label_set_text(elrs_bind_button, "UNBIND");
+                lv_label_set_text(elrs_status_value, "Bound");
+                break;
+                
+            case ELRS_STATE_BINDING:
+                lv_label_set_text(elrs_bind_button, "CANCEL");
+                // Countdown handled below
+                break;
+                
+            case ELRS_STATE_BIND_SUCCESS:
+                lv_label_set_text(elrs_status_value, "Success!");
+                break;
+                
+            case ELRS_STATE_BIND_TIMEOUT:
+                lv_label_set_text(elrs_status_value, "Timeout");
+                break;
+        }
+        last_elrs_state = state;
+    }
+    
+    // Show countdown during binding
+    if (state == ELRS_STATE_BINDING) {
+        uint32_t remaining = ELRS_Backpack_Get_Binding_Timeout_Remaining();
+        lv_label_set_text_fmt(elrs_status_value, "%lus", remaining);
+    }
+}
+#endif
+
 
 static void setup_event_callback(lv_event_t* event)
 {
@@ -92,7 +144,7 @@ static void setup_event_callback(lv_event_t* event)
             if (obj == exit_label) {
                 page_set_animation_en(lv_obj_has_state(boot_animation_switch, LV_STATE_CHECKED));
                 beep_set_enable_disable(lv_obj_has_state(beep_switch, LV_STATE_CHECKED));
-                RX5808_Set_ELRS_Backpack_Enabled(lv_obj_has_state(elrs_backpack_switch, LV_STATE_CHECKED) ? 1 : 0);
+                // ELRS Backpack removed from save/load - binding persisted automatically in NVS
                 //LCD_SET_BLK(setup_back_light);
                 rx5808_div_setup_upload(rx5808_div_config_start_animation);
                 rx5808_div_setup_upload(rx5808_div_config_beep);
@@ -101,7 +153,7 @@ static void setup_event_callback(lv_event_t* event)
                 rx5808_div_setup_upload(rx5808_div_config_osd_format);
                 rx5808_div_setup_upload(rx5808_div_config_language_set);
                 rx5808_div_setup_upload(rx5808_div_config_signal_source);
-                rx5808_div_setup_upload(rx5808_div_config_elrs_backpack);
+                // ELRS backpack binding no longer saved to config - persisted in NVS automatically
                 rx5808_div_setup_upload(rx5808_div_config_cpu_freq);
                 rx5808_div_setup_upload(rx5808_div_config_gui_update_rate);
                 // Apply CPU frequency immediately
@@ -124,13 +176,23 @@ static void setup_event_callback(lv_event_t* event)
                 else
                     lv_obj_add_state(beep_switch, LV_STATE_CHECKED);
             }
-            else if (obj == elrs_backpack_label)
+            #ifdef ELRS_BACKPACK_ENABLE
+            else if (obj == elrs_bind_button_label || obj == elrs_bind_button)
             {
-                if (lv_obj_has_state(elrs_backpack_switch, LV_STATE_CHECKED) == true)
-                    lv_obj_clear_state(elrs_backpack_switch, LV_STATE_CHECKED);
-                else
-                    lv_obj_add_state(elrs_backpack_switch, LV_STATE_CHECKED);
+                // Handle ELRS binding button press
+                elrs_bind_state_t state = ELRS_Backpack_Get_State();
+                if (state == ELRS_STATE_BINDING) {
+                    // Cancel ongoing binding
+                    ELRS_Backpack_Cancel_Binding();
+                } else if (state == ELRS_STATE_BOUND || state == ELRS_STATE_BIND_SUCCESS) {
+                    // Unbind from TX
+                    ELRS_Backpack_Unbind();
+                } else {
+                    // Start binding process (30 second timeout)
+                    ELRS_Backpack_Start_Binding(30000);
+                }
             }
+            #endif
         }
         else if (key_status == LV_KEY_LEFT) {
             if (obj == back_light_label)
@@ -333,7 +395,9 @@ static void page_setup_set_language(uint16_t language)
         lv_obj_set_style_text_font(fan_speed_label, &lv_font_montserrat_12, LV_STATE_DEFAULT);
         lv_obj_set_style_text_font(boot_animation_label, &lv_font_montserrat_12, LV_STATE_DEFAULT);
         lv_obj_set_style_text_font(beep_label, &lv_font_montserrat_12, LV_STATE_DEFAULT);
-        lv_obj_set_style_text_font(elrs_backpack_label, &lv_font_montserrat_12, LV_STATE_DEFAULT);
+        #ifdef ELRS_BACKPACK_ENABLE
+        lv_obj_set_style_text_font(elrs_bind_button_label, &lv_font_montserrat_12, LV_STATE_DEFAULT);
+        #endif
         lv_obj_set_style_text_font(osd_format_label, &lv_font_montserrat_12, LV_STATE_DEFAULT);
         lv_obj_set_style_text_font(language_label, &lv_font_montserrat_12, LV_STATE_DEFAULT);
         lv_obj_set_style_text_font(signal_source_label, &lv_font_montserrat_12, LV_STATE_DEFAULT);
@@ -341,12 +405,14 @@ static void page_setup_set_language(uint16_t language)
         lv_obj_set_style_text_font(cpu_freq_label, &lv_font_montserrat_12, LV_STATE_DEFAULT);
         lv_obj_set_style_text_font(gui_update_rate_label, &lv_font_montserrat_12, LV_STATE_DEFAULT);
         lv_obj_set_style_text_font(exit_label, &lv_font_montserrat_12, LV_STATE_DEFAULT);
-        lv_label_set_text_fmt(back_light_label, "BackLight");
-        lv_label_set_text_fmt(fan_speed_label, "FanSpeed ");
-        lv_label_set_text_fmt(boot_animation_label, "Boot Logo");
+        lv_label_set_text_fmt(back_light_label, "BckLight");
+        lv_label_set_text_fmt(fan_speed_label, "Fan");
+        lv_label_set_text_fmt(boot_animation_label, "Boot ANM");
         lv_label_set_text_fmt(beep_label, "Beep");
-        lv_label_set_text_fmt(elrs_backpack_label, "ELRS BP");
-        lv_label_set_text_fmt(osd_format_label, "OSD Type");
+        #ifdef ELRS_BACKPACK_ENABLE
+        lv_label_set_text_fmt(elrs_bind_button_label, "ELRS BP");
+        #endif
+        lv_label_set_text_fmt(osd_format_label, "OSD");
         lv_label_set_text_fmt(language_label, "Language");
         lv_label_set_text_fmt(signal_source_label, "Signal");
         lv_label_set_text_fmt(diversity_mode_label, "Div Mode");
@@ -365,7 +431,9 @@ static void page_setup_set_language(uint16_t language)
         lv_obj_set_style_text_font(fan_speed_label, &lv_font_chinese_12, LV_STATE_DEFAULT);
         lv_obj_set_style_text_font(boot_animation_label, &lv_font_chinese_12, LV_STATE_DEFAULT);
         lv_obj_set_style_text_font(beep_label, &lv_font_chinese_12, LV_STATE_DEFAULT);
-        lv_obj_set_style_text_font(elrs_backpack_label, &lv_font_chinese_12, LV_STATE_DEFAULT);
+        #ifdef ELRS_BACKPACK_ENABLE
+        lv_obj_set_style_text_font(elrs_bind_button_label, &lv_font_chinese_12, LV_STATE_DEFAULT);
+        #endif
         lv_obj_set_style_text_font(osd_format_label, &lv_font_chinese_12, LV_STATE_DEFAULT);
         lv_obj_set_style_text_font(language_label, &lv_font_chinese_12, LV_STATE_DEFAULT);
         lv_obj_set_style_text_font(signal_source_label, &lv_font_chinese_12, LV_STATE_DEFAULT);
@@ -376,7 +444,11 @@ static void page_setup_set_language(uint16_t language)
         lv_label_set_text_fmt(back_light_label, "屏幕背光 ");
         lv_label_set_text_fmt(fan_speed_label, "风扇转速 ");
         lv_label_set_text_fmt(boot_animation_label, "开机动画 ");
-        lv_label_set_text_fmt(beep_label, "蜂鸣器 ");        lv_label_set_text_fmt(elrs_backpack_label, "ELRS背包");        lv_label_set_text_fmt(osd_format_label, "OSD制式");
+        lv_label_set_text_fmt(beep_label, "蜂鸣器 ");
+        #ifdef ELRS_BACKPACK_ENABLE
+        lv_label_set_text_fmt(elrs_bind_button_label, "ELRS背包");
+        #endif
+        lv_label_set_text_fmt(osd_format_label, "OSD制式");
         lv_label_set_text_fmt(language_label, "系统语言 ");
         lv_label_set_text_fmt(signal_source_label, "输出信号源 ");
         lv_label_set_text_fmt(diversity_mode_label, "分集模式 ");
@@ -485,25 +557,43 @@ void page_setup_create()
         lv_obj_clear_state(beep_switch, LV_STATE_CHECKED);
     
 
-    // ELRS Backpack Enable/Disable
-    elrs_backpack_label = lv_label_create(menu_setup_contain);
-    lv_obj_add_style(elrs_backpack_label, &style_label, LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_color(elrs_backpack_label, LABEL_FOCUSE_COLOR, LV_STATE_FOCUSED);
-    lv_obj_set_pos(elrs_backpack_label, 0, 78);
-    lv_obj_set_size(elrs_backpack_label, 75, 20);
-    lv_label_set_long_mode(elrs_backpack_label, LV_LABEL_LONG_WRAP);
+    #ifdef ELRS_BACKPACK_ENABLE
+    // ELRS Backpack Binding UI (replaces simple ON/OFF toggle)
+    elrs_bind_button_label = lv_label_create(menu_setup_contain);
+    lv_obj_add_style(elrs_bind_button_label, &style_label, LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(elrs_bind_button_label, LABEL_FOCUSE_COLOR, LV_STATE_FOCUSED);
+    lv_obj_set_pos(elrs_bind_button_label, 0, 78);
+    lv_obj_set_size(elrs_bind_button_label, 75, 20);
+    lv_label_set_long_mode(elrs_bind_button_label, LV_LABEL_LONG_WRAP);
 
-    elrs_backpack_switch = lv_switch_create(menu_setup_contain);
-    lv_obj_set_style_border_opa(elrs_backpack_switch, 0, LV_STATE_DEFAULT);
-    lv_obj_set_size(elrs_backpack_switch, 50, 14);
-    lv_obj_set_pos(elrs_backpack_switch, 110, 81);
-    lv_obj_set_style_bg_color(elrs_backpack_switch, SWITCH_COLOR, LV_PART_INDICATOR | LV_STATE_CHECKED);
-    elrs_backpack_state = RX5808_Get_ELRS_Backpack_Enabled();
-    if (elrs_backpack_state == true)
-        lv_obj_add_state(elrs_backpack_switch, LV_STATE_CHECKED);
-    else
-        lv_obj_clear_state(elrs_backpack_switch, LV_STATE_CHECKED);
+    // Binding button (shows BIND/UNBIND/CANCEL depending on state)
+    elrs_bind_button = lv_label_create(menu_setup_contain);
+    lv_obj_add_style(elrs_bind_button, &style_setup_item, LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(elrs_bind_button, LABEL_FOCUSE_COLOR, LV_STATE_FOCUSED);
+    lv_obj_set_pos(elrs_bind_button, 75, 78);
+    lv_obj_set_size(elrs_bind_button, 35, 18);
+    lv_label_set_text(elrs_bind_button, "BIND");  // Initial label
+    lv_label_set_long_mode(elrs_bind_button, LV_LABEL_LONG_CLIP);
     
+    // Status value label (shows Bound/Unbound/countdown)
+    elrs_status_value = lv_label_create(menu_setup_contain);
+    lv_obj_add_style(elrs_status_value, &style_setup_item, LV_STATE_DEFAULT);
+    lv_obj_set_pos(elrs_status_value, 110, 78);
+    lv_obj_set_size(elrs_status_value, 50, 18);
+    lv_label_set_text(elrs_status_value, "---");  // Initial status
+    lv_label_set_long_mode(elrs_status_value, LV_LABEL_LONG_CLIP);
+    
+    // Initialize based on current binding state
+    elrs_bind_state_t initial_state = ELRS_Backpack_Get_State();
+    last_elrs_state = initial_state;
+    if (initial_state == ELRS_STATE_BOUND) {
+        lv_label_set_text(elrs_bind_button, "UNBIND");
+        lv_label_set_text(elrs_status_value, "Bound");
+    } else {
+        lv_label_set_text(elrs_bind_button, "BIND");
+        lv_label_set_text(elrs_status_value, "Unbound");
+    }
+    #endif
 
     osd_format_label = lv_label_create(menu_setup_contain);
     lv_obj_add_style(osd_format_label, &style_label, LV_STATE_DEFAULT);
@@ -619,7 +709,10 @@ void page_setup_create()
     lv_obj_add_event_cb(back_light_label, setup_event_callback, LV_EVENT_KEY, NULL);
     lv_obj_add_event_cb(fan_speed_label, setup_event_callback, LV_EVENT_KEY, NULL);
     lv_obj_add_event_cb(beep_label, setup_event_callback, LV_EVENT_KEY, NULL);
-    lv_obj_add_event_cb(elrs_backpack_label, setup_event_callback, LV_EVENT_KEY, NULL);
+    #ifdef ELRS_BACKPACK_ENABLE
+    lv_obj_add_event_cb(elrs_bind_button_label, setup_event_callback, LV_EVENT_KEY, NULL);
+    lv_obj_add_event_cb(elrs_bind_button, setup_event_callback, LV_EVENT_KEY, NULL);
+    #endif
     lv_obj_add_event_cb(osd_format_label, setup_event_callback, LV_EVENT_KEY, NULL);
     lv_obj_add_event_cb(language_label, setup_event_callback, LV_EVENT_KEY, NULL);
     lv_obj_add_event_cb(signal_source_label, setup_event_callback, LV_EVENT_KEY, NULL);
@@ -632,7 +725,9 @@ void page_setup_create()
     lv_group_add_obj(setup_group, fan_speed_label);
     lv_group_add_obj(setup_group, boot_animation_label);
     lv_group_add_obj(setup_group, beep_label);
-    lv_group_add_obj(setup_group, elrs_backpack_label);
+    #ifdef ELRS_BACKPACK_ENABLE
+    lv_group_add_obj(setup_group, elrs_bind_button_label);
+    #endif
     lv_group_add_obj(setup_group, osd_format_label);
     lv_group_add_obj(setup_group, language_label);
     lv_group_add_obj(setup_group, signal_source_label);
@@ -652,7 +747,9 @@ void page_setup_create()
     lv_amin_start(fan_speed_label, -100, 0, 1, 150, 50, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
     lv_amin_start(boot_animation_label, -100, 0, 1, 150, 100, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
     lv_amin_start(beep_label, -100, 0, 1, 150, 150, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
-    lv_amin_start(elrs_backpack_label, -100, 0, 1, 150, 200, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
+    #ifdef ELRS_BACKPACK_ENABLE
+    lv_amin_start(elrs_bind_button_label, -100, 0, 1, 150, 200, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
+    #endif
     lv_amin_start(osd_format_label, -100, 0, 1, 150, 250, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
     lv_amin_start(language_label, -100, 0, 1, 150, 300, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
     lv_amin_start(signal_source_label, -100, 0, 1, 150, 350, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
@@ -663,15 +760,21 @@ void page_setup_create()
 
     lv_amin_start(back_light_bar, 160, 110, 1, 150, 0, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
     lv_amin_start(fan_speed_bar, 160, 110, 1, 150, 50, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
-    lv_amin_start(boot_animation_switch, 160, 110, 1, 150, 100, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
+    #ifdef ELRS_BACKPACK_ENABLE
+    lv_amin_start(elrs_bind_button, 160, 75, 1, 150, 200, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
+    lv_amin_start(elrs_status_value, 160, 110, 1, 150, 200, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
+    #endif
     lv_amin_start(beep_switch, 160, 110, 1, 150, 150, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
-    lv_amin_start(elrs_backpack_switch, 160, 110, 1, 150, 200, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
     lv_amin_start(osd_format_setup_label, 160, 110, 1, 150, 250, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
     lv_amin_start(language_setup_label, 160, 110, 1, 150, 300, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
     lv_amin_start(signal_source_setup_label, 160, 110, 1, 150, 350, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
     lv_amin_start(diversity_mode_setup_label, 160, 110, 1, 150, 400, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
     lv_amin_start(cpu_freq_setup_label, 160, 110, 1, 150, 450, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
-
+    #ifdef ELRS_BACKPACK_ENABLE
+    // Create timer for ELRS status updates (500ms interval)
+    elrs_status_timer = lv_timer_create(elrs_status_update, 500, NULL);
+    last_elrs_state = ELRS_Backpack_Get_State();
+    #endif
 }
 
 
@@ -681,7 +784,9 @@ static void page_setup_exit()
     lv_amin_start(fan_speed_label, lv_obj_get_x(fan_speed_label), -100, 1, 200, 50, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
     lv_amin_start(boot_animation_label, lv_obj_get_x(boot_animation_label), -100, 1, 200, 100, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
     lv_amin_start(beep_label, lv_obj_get_x(beep_label), -100, 1, 200, 150, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
-    lv_amin_start(elrs_backpack_label, lv_obj_get_x(elrs_backpack_label), -100, 1, 200, 200, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
+    #ifdef ELRS_BACKPACK_ENABLE
+    lv_amin_start(elrs_bind_button_label, lv_obj_get_x(elrs_bind_button_label), -100, 1, 200, 200, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
+    #endif
     lv_amin_start(osd_format_label, lv_obj_get_x(osd_format_label), -100, 1, 200, 250, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
     lv_amin_start(language_label, lv_obj_get_x(language_label), -100, 1, 200, 300, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
     lv_amin_start(signal_source_label, lv_obj_get_x(signal_source_label), -100, 1, 200, 350, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
@@ -693,12 +798,23 @@ static void page_setup_exit()
     lv_amin_start(fan_speed_bar, lv_obj_get_x(fan_speed_bar), 160, 1, 200, 50, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
     lv_amin_start(boot_animation_switch, lv_obj_get_x(boot_animation_switch), 160, 1, 200, 100, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
     lv_amin_start(beep_switch, lv_obj_get_x(beep_switch), 160, 1, 200, 150, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
-    lv_amin_start(elrs_backpack_switch, lv_obj_get_x(elrs_backpack_switch), 160, 1, 200, 200, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
+    #ifdef ELRS_BACKPACK_ENABLE
+    lv_amin_start(elrs_bind_button, lv_obj_get_x(elrs_bind_button), 160, 1, 200, 200, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
+    lv_amin_start(elrs_status_value, lv_obj_get_x(elrs_status_value), 160, 1, 200, 200, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
+    #endif
     lv_amin_start(osd_format_setup_label, lv_obj_get_x(osd_format_setup_label), 160, 1, 200, 250, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
     lv_amin_start(language_setup_label, lv_obj_get_x(language_setup_label), 160, 1, 200, 300, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
     lv_amin_start(signal_source_setup_label, lv_obj_get_x(signal_source_setup_label), 160, 1, 200, 350, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
     lv_amin_start(diversity_mode_setup_label, lv_obj_get_x(diversity_mode_setup_label), 160, 1, 200, 400, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
     lv_amin_start(cpu_freq_setup_label, lv_obj_get_x(cpu_freq_setup_label), 160, 1, 200, 450, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
+
+    #ifdef ELRS_BACKPACK_ENABLE
+    // Stop and delete ELRS status timer on exit
+    if (elrs_status_timer != NULL) {
+        lv_timer_del(elrs_status_timer);
+        elrs_status_timer = NULL;
+    }
+    #endif
 
     lv_fun_delayed(page_setup_style_deinit, 500);
     lv_group_del(setup_group);

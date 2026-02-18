@@ -19,6 +19,10 @@
 #include "esp_pm.h"
 #include "esp_clk_tree.h"
 
+#ifdef ELRS_BACKPACK_ENABLE
+#include "elrs_backpack.h"
+#endif
+
 static const char *TAG = "SYSTEM";
 
 
@@ -155,8 +159,14 @@ void system_init(void)
 	//ws2812_init();
 	//printf("ws2812 init success!\n");
 	
-	// ExpressLRS Backpack support removed - backpack is now independent SPI master
-	// No ESP32 firmware integration needed (backpack controls RX5808 directly)
+	#ifdef ELRS_BACKPACK_ENABLE
+	// Initialize ELRS Backpack (ESP-NOW wireless implementation)
+	if (ELRS_Backpack_Init()) {
+		printf("ELRS Backpack initialized (ESP-NOW)!\n");
+	} else {
+		printf("ELRS Backpack initialization failed!\n");
+	}
+	#endif
 	
 	//while(1);
 

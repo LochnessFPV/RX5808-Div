@@ -23,6 +23,10 @@
 #define D0WDQ6_VER   // ENABLE this for v1.2 hardware
 #define SPI_LOW_SPEED
 
+// ELRS Backpack Support (ESP-NOW wireless implementation)
+// Comment out to disable ELRS functionality
+#define ELRS_BACKPACK_ENABLE
+
 
 #define SPI_HOST_USER    HSPI_HOST
 
