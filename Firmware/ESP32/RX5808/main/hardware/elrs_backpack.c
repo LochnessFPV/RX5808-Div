@@ -303,12 +303,18 @@ static void handle_msp_set_vtx_config(const uint8_t *payload, uint16_t length) {
             uint8_t band = channel_index / 8;
             uint8_t channel = channel_index % 8;
             
-            // Update RX5808 channel
+            // Look up actual frequency from band/channel table
+            uint16_t frequency = Rx5808_Freq[band][channel];
+            
+            // CRITICAL: Tune RX5808 hardware to new frequency (includes 50ms PLL settling)
+            RX5808_Set_Freq(frequency);
+            
+            // Update channel variables for GUI
             Rx5808_Set_Channel(channel_index);
             last_remote_channel = channel_index;
             
-            ESP_LOGI(TAG, ">>> CHANNEL CHANGED: %c%u (index %u) <<<", 
-                     "ABEFRЛ"[band], channel + 1, channel_index);
+            ESP_LOGI(TAG, ">>> CHANNEL CHANGED: %c%u (index %u) → %u MHz <<<", 
+                     "ABEFRЛ"[band], channel + 1, channel_index, frequency);
             
             // GUI will automatically update on next polling cycle
         } else {
