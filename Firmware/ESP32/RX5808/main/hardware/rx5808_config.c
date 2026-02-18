@@ -54,7 +54,7 @@ void rx5808_div_setup_load()
 		rx5808_div_setup[rx5808_div_config_osd_format]=OSD_FORMAT_DEFAULT;
 		rx5808_div_setup[rx5808_div_config_language_set]=LANGUAGE_DEFAULT;
 		rx5808_div_setup[rx5808_div_config_signal_source]=SIGNAL_SOURCE_DEFAULT;
-		rx5808_div_setup[rx5808_div_config_elrs_backpack]=ELRS_BACKPACK_DEFAULT;
+		// ELRS backpack removed - binding managed through ELRS_Backpack API
 		rx5808_div_setup[rx5808_div_config_cpu_freq]=CPU_FREQ_DEFAULT;
 		rx5808_div_setup[rx5808_div_config_gui_update_rate]=GUI_UPDATE_RATE_DEFAULT;
 		rx5808_div_setup[rx5808_div_config_setup_id]=SETUP_ID_DEFAULT;
@@ -77,7 +77,7 @@ void rx5808_div_setup_load()
 		RX5808_Set_OSD_Format(rx5808_div_setup[rx5808_div_config_osd_format]);
 		RX5808_Set_Language(rx5808_div_setup[rx5808_div_config_language_set]);
 		RX5808_Set_Signal_Source(rx5808_div_setup[rx5808_div_config_signal_source]);
-		RX5808_Set_ELRS_Backpack_Enabled(rx5808_div_setup[rx5808_div_config_elrs_backpack]);
+		// ELRS backpack removed - initialized separately in system.c
 		RX5808_Set_CPU_Freq(rx5808_div_setup[rx5808_div_config_cpu_freq]);
 		RX5808_Set_GUI_Update_Rate(rx5808_div_setup[rx5808_div_config_gui_update_rate]);
         
@@ -121,7 +121,6 @@ uint16_t (*set_fun_arr[rx5808_div_config_setup_count-1])()={
 	RX5808_Get_OSD_Format,\
 	RX5808_Get_Language,\
 	RX5808_Get_Signal_Source,\
-	RX5808_Get_ELRS_Backpack_Enabled,\
 	RX5808_Get_CPU_Freq,\
 	RX5808_Get_GUI_Update_Rate
 };

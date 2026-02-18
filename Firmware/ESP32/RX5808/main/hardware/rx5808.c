@@ -87,7 +87,7 @@ volatile uint16_t Rx5808_RSSI_Ad_Max1=4095;
 volatile uint16_t Rx5808_OSD_Format=0;
 volatile uint16_t Rx5808_Language=1;
 volatile uint16_t Rx5808_Signal_Source=0;
-volatile uint16_t Rx5808_ELRS_Backpack_Enabled=0;  // OFF by default
+// ELRS Backpack: No longer a simple toggle - binding managed through page_setup.c UI
 volatile uint16_t Rx5808_CPU_Freq=1;  // 160MHz by default (0=80MHz, 1=160MHz, 2=240MHz)
 volatile uint16_t Rx5808_GUI_Update_Rate=1;  // 70ms (14Hz) by default (0=100ms/10Hz, 1=70ms/14Hz, 2=50ms/20Hz, 3=40ms/25Hz, 4=20ms/50Hz, 5=10ms/100Hz)
 
@@ -327,11 +327,7 @@ void RX5808_Set_Signal_Source(uint16_t value)
     Rx5808_Signal_Source = value;
 }
 
-void RX5808_Set_ELRS_Backpack_Enabled(uint16_t value)
-{
-    Rx5808_ELRS_Backpack_Enabled = value;
-    ESP_LOGI(TAG, "ELRS Backpack: %s", value ? "ENABLED" : "DISABLED");
-}
+// ELRS Backpack functions removed - binding now managed through ELRS_Backpack API in page_setup.c
 
 void RX5808_Set_CPU_Freq(uint16_t value)
 {
@@ -387,10 +383,7 @@ uint16_t RX5808_Get_Signal_Source()
     return Rx5808_Signal_Source;
 }
 
-uint16_t RX5808_Get_ELRS_Backpack_Enabled()
-{
-    return Rx5808_ELRS_Backpack_Enabled;
-}
+// ELRS Backpack functions removed - binding now managed through ELRS_Backpack API in page_setup.c
 
 uint16_t RX5808_Get_CPU_Freq()
 {

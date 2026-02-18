@@ -33,7 +33,7 @@ void RX5808_Set_RSSI_Ad_Max1(uint16_t value);
 void RX5808_Set_OSD_Format(uint16_t value);
 void RX5808_Set_Language(uint16_t value);
 void RX5808_Set_Signal_Source(uint16_t value);
-void RX5808_Set_ELRS_Backpack_Enabled(uint16_t value);
+// ELRS Backpack functions removed - use ELRS_Backpack API directly
 void RX5808_Set_CPU_Freq(uint16_t value);
 void RX5808_Set_GUI_Update_Rate(uint16_t value);
 uint16_t Rx5808_Get_Channel(void);
@@ -44,7 +44,7 @@ uint16_t RX5808_Get_RSSI_Ad_Max1(void);
 uint16_t RX5808_Get_OSD_Format(void);
 uint16_t RX5808_Get_Language(void);
 uint16_t RX5808_Get_Signal_Source(void);
-uint16_t RX5808_Get_ELRS_Backpack_Enabled(void);
+// ELRS Backpack functions removed - use ELRS_Backpack API directly
 uint16_t RX5808_Get_CPU_Freq(void);
 uint16_t RX5808_Get_GUI_Update_Rate(void);
 bool RX5808_Calib_RSSI(uint16_t min0,uint16_t max0,uint16_t min1,uint16_t max1);
