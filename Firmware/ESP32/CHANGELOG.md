@@ -1,5 +1,151 @@
 # RX5808 Diversity Firmware Changelog
 
+## v1.7.0 (January 2025) - ELRS Backpack Protocol Correction
+
+### 🔧 ExpressLRS Backpack - Critical Protocol Fix
+
+#### Problem Identification
+The ExpressLRS Backpack wireless VTX control implementation in v1.6.0 and earlier versions contained a fundamental protocol error that caused erratic behavior and unreliable channel switching.
+
+**Root Cause:**
+- Incorrectly used `MSP_ELRS_BACKPACK_CRSF_TLM (0x0011)` telemetry wrapper packets as channel commands
+- Extracted channel index from wrong byte offset (`byte[2]` instead of `byte[0]`)
+- Misinterpreted broadcast telemetry data (GPS/battery/linkstats) as VTX commands
+- Did not implement proper handling of `MSP_SET_VTX_CONFIG (0x0059)` actual command packets
+
+#### Solution Implementation
+
+**Protocol Correction (Commit `15f72b9`):**
+- Renamed `MSP_ELRS_VTX_CONFIG` → `MSP_ELRS_BACKPACK_CRSF_TLM` for clarity
+- Documented `0x0011` as "CRSF telemetry wrapper (GPS/battery/linkstats)" - **MUST BE IGNORED**
+- Documented `0x0059` as "MSP VTX config - ACTUAL channel commands" - **MUST BE PROCESSED**
+- Added payload structure documentation for both command types
+- File: `Firmware/ESP32/RX5808/main/elrs_backpack/elrs_msp.h`
+
+**Handler Implementation (Commit `5643d35`):**
+- Fixed `handle_msp_set_vtx_config()` to read channel from `byte[0]` instead of `byte[2]`
+- Changed `process_msp_packet()` to ignore `0x0011` (telemetry) packets
+- Implemented proper `0x0059` (VTX command) packet processing
+- Added comprehensive logging showing packet type, size, payload hex dump, and channel changes
+- File: `Firmware/ESP32/RX5808/main/elrs_backpack/elrs_backpack.c`
+
+#### Technical Details
+
+**MSP Command Reference:**
+- `MSP_ELRS_BACKPACK_CRSF_TLM (0x0011)`:
+  - Purpose: Telemetry wrapper containing GPS coordinates, battery voltage, link statistics
+  - Size: Variable 6-14 bytes
+  - Broadcast: Continuous (~5 second intervals)
+  - Action: **IGNORED** (not VTX commands)
+
+- `MSP_SET_VTX_CONFIG (0x0059)`:
+  - Purpose: Actual VTX channel configuration commands
+  - Size: Fixed 4 bytes `[channel_idx, freq_msb, power_idx, pit_mode]`
+  - Trigger: User action via EdgeTX/OpenTX VTX Admin
+  - Action: **PROCESSED** for channel switching
+
+**Payload Structure:**
+```c
+// 0x0059 payload (4 bytes)
+byte[0] = channel_idx;  // 0-47 (6 bands × 8 channels)
+byte[1] = freq_msb;     // Frequency MSB for verification
+byte[2] = power_idx;    // Power level index
+byte[3] = pit_mode;     // Pit mode on/off
+```
+
+**Channel Index Mapping:**
+- Band A: 0-7   (5865, 5845, 5825, 5805, 5785, 5765, 5745, 5725 MHz)
+- Band B: 8-15  (5733, 5752, 5771, 5790, 5809, 5828, 5847, 5866 MHz)
+- Band E: 16-23 (5705, 5685, 5665, 5645, 5885, 5905, 5925, 5945 MHz)
+- Band F: 24-31 (5740, 5760, 5780, 5800, 5820, 5840, 5860, 5880 MHz)
+- Band R: 32-39 (5658, 5695, 5732, 5769, 5806, 5843, 5880, 5917 MHz)
+- Band L: 40-47 (5362, 5399, 5436, 5473, 5510, 5547, 5584, 5621 MHz)
+
+#### Hardware Verification
+
+**Testing Setup:**
+- TX Module: ExpressLRS 1.5.4 firmware
+- Radio: EdgeTX with VTX Admin enabled
+- RX: RX5808-Div with ELRS Backpack enabled
+- Binding: MAC 50:45:C7:E5:F9:2A (from UID 51:45:C7:E5:F9:2A)
+
+**Test Results:**
+```
+Channel B4 (index 11): ✅ SUCCESS
+  Payload: 0B 00 03 00
+  Log: >>> CHANNEL CHANGED: B4 (index 11) <<<
+
+Channel R7 (index 38): ✅ SUCCESS  
+  Payload: 26 00 03 00
+  Log: >>> CHANNEL CHANGED: R7 (index 38) <<<
+
+Channel L3 (index 42): ✅ SUCCESS
+  Payload: 2A 00 03 00
+  Log: >>> CHANNEL CHANGED: L3 (index 42) <<<
+```
+
+**Verification Status:** ✅ **FULLY WORKING**
+- All channel changes execute correctly
+- No erratic switching observed
+- Telemetry packets properly ignored
+- VTX Admin commands processed reliably
+
+#### ESP-NOW Communication
+
+**Transport Details:**
+- Protocol: MSP v2 over ESP-NOW (WiFi peer-to-peer)
+- WiFi Channel: Channel 1 (2412 MHz)
+- Security: Open (no encryption for broadcast compatibility)
+- CRC: CRC8-DVB-S2 (polynomial 0xD5)
+- Packet Format: `$X<type><flags><func_l><func_h><size_l><size_h><payload><crc8>`
+
+**Operational Behavior:**
+- TX continuously broadcasts telemetry status (~5s intervals) via `0x0011` - receiver ignores these
+- VTX Admin user commands sent via `0x0059` - receiver processes these for channel switching
+- No ACK/response mechanism (one-way communication)
+
+#### Developer Resources
+
+**Commit References:**
+- `15f72b9`: "fix(elrs): correct MSP protocol command definitions"
+- `5643d35`: "feat(elrs): implement proper VTX channel command handling"
+
+**Files Modified:**
+- `Firmware/ESP32/RX5808/main/elrs_backpack/elrs_msp.h` (91 lines)
+- `Firmware/ESP32/RX5808/main/elrs_backpack/elrs_backpack.c` (809 lines)
+
+**Testing Logs:**
+```
+I (34578) ELRS_BP: ==== MSP_SET_VTX_CONFIG (0x0059) ====
+I (34578) ELRS_BP: Payload: 0B 00 03 00
+I (34578) ELRS_BP: Channel from byte[0] = 0x0B (11 decimal)
+I (34588) ELRS_BP: >>> CHANNEL CHANGED: B4 (index 11) <<<
+```
+
+#### Migration Notes
+
+**For Users:**
+- No configuration changes required
+- Simply update firmware to v1.7.0
+- ELRS Backpack toggle in Setup menu continues to work
+- Existing binding UID preserved
+
+**For Developers:**
+- Review official ExpressLRS Backpack repository for protocol specs
+- Always verify protocol assumptions against official documentation
+- Use correct MSP command codes (`0x0059` not `0x0011` for VTX)
+- Extract channel from `byte[0]` of payload
+- Reference commits for detailed implementation examples
+
+### 📚 References
+
+- **ExpressLRS Backpack Specification**: https://github.com/ExpressLRS/Backpack
+- **MSP v2 Protocol**: MultiWii Serial Protocol Version 2
+- **EdgeTX VTX Admin**: https://edgetx.org
+- **ESP-NOW Documentation**: https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/network/esp_now.html
+
+---
+
 ## v1.6.0 (February 17, 2026) - UI Enhancement & Thermal Optimization Edition
 
 ### 🎨 User Interface Enhancements
