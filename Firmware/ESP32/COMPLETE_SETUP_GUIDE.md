@@ -1,5 +1,10 @@
 # 🚀 Complete RX5808 Diversity + ExpressLRS Backpack Setup Guide
 
+> **⚠️ IMPORTANT v1.7.0 UPDATE:**  
+> The ExpressLRS Backpack protocol implementation has been corrected in v1.7.0. Previous versions incorrectly used telemetry packets (`0x0011`) as channel commands. This guide reflects the **corrected implementation** using `MSP_SET_VTX_CONFIG (0x0059)` for reliable wireless VTX control.
+> 
+> **What's Fixed:** Channel commands now use correct MSP code (`0x0059`), proper byte extraction (`byte[0]`), and telemetry filtering. Hardware verified working with EdgeTX VTX Admin.
+
 ## 📚 Table of Contents
 
 1. [Overview](#overview)
@@ -18,8 +23,9 @@ This guide combines **three major upgrades** to your RX5808 diversity receiver:
 
 ### ✅ 1. ExpressLRS Backpack Integration
 - Wireless channel control from your radio
-- CRSF protocol over UART (420kbps)
-- Compatible with EdgeTX/OpenTX VTX control
+- MSP v2 protocol over ESP-NOW (WiFi peer-to-peer)
+- Compatible with EdgeTX/OpenTX VTX Admin
+- **v1.7.0:** Corrected protocol implementation for reliable operation
 
 ### ✅ 2. RSSI Calibration & Optimization
 - Accurate signal strength readings
@@ -229,11 +235,20 @@ Radio: Band R Ch 1 → RX5808 should tune to 5658 MHz
 idf.py -p COM4 monitor
 ```
 
-When you change channel on radio:
+When you change channel on radio (v1.7.0+):
 ```
-I (5678) ELRS_BACKPACK: MSP Command: 0x58 from 0xEE
-I (5679) ELRS_BACKPACK: Setting VRX: Band=0, Ch=0, Freq=5865
+I (34578) ELRS_BP: ==== MSP_SET_VTX_CONFIG (0x0059) ====
+I (34578) ELRS_BP: Payload: 0B 00 03 00
+I (34578) ELRS_BP: Channel from byte[0] = 0x0B (11 decimal)
+I (34588) ELRS_BP: >>> CHANNEL CHANGED: B4 (index 11) <<<
 ```
+
+**Expected Behavior:**
+- Only see `0x0059` packets when you actively change channels via VTX Admin
+- Telemetry packets (`0x0011`) broadcast every ~5s are automatically ignored
+- Channel index in `byte[0]` ranges from 0-47 (6 bands × 8 channels)
+
+**Note:** Previous versions may show incorrect `0x58` or `0x88` codes - update to v1.7.0 for proper operation.
 
 **Test 3: Diversity Switching**
 1. Cover antenna 1 → Should switch to antenna 2
@@ -323,17 +338,26 @@ static uint16_t filter_rssi(uint16_t new_value, uint16_t *buffer) {
 
 ### Issue 1: No Backpack Communication
 
-**Symptom:** No "MSP Command" messages in serial monitor
+**Symptom:** No "MSP_SET_VTX_CONFIG (0x0059)" messages in serial monitor when changing channels
 
 **Check:**
-- ✅ TX→RX, RX→TX crossover wiring
+- ✅ Firmware version v1.7.0 or later (check with `git log --oneline -1`)
+- ✅ ELRS Backpack enabled in Setup menu (ON/OFF toggle)
+- ✅ TX→RX, RX→TX crossover wiring (EP1 TX → GPIO16, EP1 RX → GPIO17)
 - ✅ Common ground (GND connected)
 - ✅ EP1 is in VRX backpack mode (not standard RX)
 - ✅ Binding phrase matches TX
 - ✅ EP1 connected to TX (LED solid/fast blink)
 - ✅ GPIO16/17 not shorted or damaged
 
-**Fix:** Short TX/RX together (loopback test), should see echo
+**What You Should See:**
+- `0x0011` packets every ~5 seconds (telemetry broadcasts) - these are **automatically ignored** ✅
+- `0x0059` packets only when you change channels via VTX Admin - these are **processed** ✅
+
+**Fix:**
+1. Short TX/RX together (loopback test), should see echo  
+2. Update to firmware v1.7.0 if seeing incorrect `0x58` or `0x88` commands
+3. Enable ELRS Backpack in Setup menu if disabled
 
 ### Issue 2: Wrong Frequencies
 

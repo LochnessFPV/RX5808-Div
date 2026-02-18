@@ -1,5 +1,10 @@
 # ExpressLRS Backpack Troubleshooting Guide
 
+> **📌 v1.7.0 Protocol Update:**  
+> This guide reflects the **corrected MSP protocol implementation** in v1.7.0. If you're experiencing issues with earlier versions showing `0x58` or `0x88` commands, update to v1.7.0 for proper `MSP_SET_VTX_CONFIG (0x0059)` handling.
+> 
+> **Key Changes:** Channel commands now use `0x0059` (not `0x0011`), channel extracted from `byte[0]` (not `byte[2]`), and telemetry packets are properly filtered.
+
 ## Quick Diagnostics
 
 ### Check 1: Monitor Output
@@ -108,7 +113,22 @@ mv main/driver/elrs_backpack_example.c main/driver/elrs_backpack_example.txt
 
 ### Symptoms
 - Backpack initializes
-- No "MSP Command" messages when changing channel on TX
+- No `MSP_SET_VTX_CONFIG (0x0059)` messages when changing channel on TX via VTX Admin
+
+### What You Should See (v1.7.0+)
+
+**Normal Operation:**
+```
+I (12345) ELRS_BP: Ignoring MSP_ELRS_BACKPACK_CRSF_TLM (0x0011) - telemetry wrapper
+I (17890) ELRS_BP: ==== MSP_SET_VTX_CONFIG (0x0059) ====
+I (17890) ELRS_BP: Payload: 0B 00 03 00
+I (17890) ELRS_BP: Channel from byte[0] = 0x0B (11 decimal)
+I (17900) ELRS_BP: >>> CHANNEL CHANGED: B4 (index 11) <<<
+```
+
+**Expected Behavior:**
+- `0x0011` packets every ~5 seconds → **Ignored** (telemetry broadcasts)
+- `0x0059` packets on user action → **Processed** (VTX Admin channel commands)
 
 ### Diagnostic Steps
 
@@ -157,22 +177,29 @@ case UART_DATA:
 Rebuild and flash. Should show hex dump of all UART data.
 
 #### Step 4: Test with Manual TX
-Send test CRSF frame:
+Send test MSP v2 frame (v1.7.0+ format):
 ```c
 // Add to system_init() after elrs_backpack_init()
 vTaskDelay(pdMS_TO_TICKS(2000));
 
+// MSP v2 SET_VTX_CONFIG (0x0059) for channel B4 (index 11)
 uint8_t test_frame[] = {
-    0xC8,        // SYNC
-    0x05,        // Length
-    0x7A,        // MSP_REQ
-    0xEE,        // From TX
-    0x03,        // To VTX
-    0x59,        // MSP_VTX_CONFIG
-    0x00         // CRC (wrong, but for testing)
+    0x24, 0x58,  // "$X" - MSP v2 header
+    0x3C,        // '<' - request
+    0x00,        // flags
+    0x59, 0x00,  // function = 0x0059 (MSP_SET_VTX_CONFIG)
+    0x04, 0x00,  // payload size = 4 bytes
+    0x0B,        // byte[0]: channel_idx = 11 (B4)
+    0x00,        // byte[1]: freq_msb
+    0x03,        // byte[2]: power_idx
+    0x00,        // byte[3]: pit_mode
+    0xXX         // CRC8-DVB-S2 (calculate properly)
 };
+// Note: Calculate CRC properly or use existing MSP library function
 uart_write_bytes(ELRS_UART_NUM, test_frame, sizeof(test_frame));
 ```
+
+**Important:** This is ESP-NOW transport in v1.7.0, not UART! The above is for testing UART fallback mode only.
 
 ---
 
