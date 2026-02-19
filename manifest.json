@@ -1,0 +1,29 @@
+{
+  "name": "RX5808-Div",
+  "version": "v1.7.0",
+  "build_date": "2026-02-19T06:36:46Z",
+  "commit": "da880e7",
+  "changelog_url": "https://github.com/LochnessFPV/RX5808-Div/blob/main/CHANGELOG.md#v170---2026-02-19",
+  "documentation_url": "https://github.com/LochnessFPV/RX5808-Div#readme",
+  "new_install_improv_wait_time": 0,
+  "new_install_prompt_erase": true,
+  "builds": [
+    {
+      "chipFamily": "ESP32",
+      "parts": [
+        {
+          "path": "rx5808-bootloader-v1.7.0.bin",
+          "offset": 4096
+        },
+        {
+          "path": "rx5808-partition-table-v1.7.0.bin",
+          "offset": 32768
+        },
+        {
+          "path": "rx5808-esp32-v1.7.0.bin",
+          "offset": 65536
+        }
+      ]
+    }
+  ]
+}
