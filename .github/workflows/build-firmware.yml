@@ -1,0 +1,117 @@
+name: Build ESP32 Firmware
+
+on:
+  release:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g., v1.7.0)'
+        required: true
+        type: string
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      
+      - name: Setup ESP-IDF
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.1
+          target: esp32
+      
+      - name: Build ESP32 firmware
+        working-directory: Firmware/ESP32/RX5808
+        run: |
+          idf.py build
+      
+      - name: Get version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" == "release" ]; then
+            echo "VERSION=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
+          else
+            echo "VERSION=${{ inputs.version }}" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Rename firmware files
+        run: |
+          VERSION=${{ steps.version.outputs.VERSION }}
+          cd Firmware/ESP32/RX5808/build
+          cp RX5808.bin rx5808-esp32-${VERSION}.bin
+          cp bootloader/bootloader.bin rx5808-bootloader-${VERSION}.bin
+          cp partition_table/partition-table.bin rx5808-partition-table-${VERSION}.bin
+      
+      - name: Generate manifest.json
+        run: |
+          VERSION=${{ steps.version.outputs.VERSION }}
+          BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          COMMIT_SHA=${{ github.sha }}
+          
+          # Get file sizes
+          APP_SIZE=$(stat -c%s Firmware/ESP32/RX5808/build/rx5808-esp32-${VERSION}.bin)
+          BOOTLOADER_SIZE=$(stat -c%s Firmware/ESP32/RX5808/build/rx5808-bootloader-${VERSION}.bin)
+          PARTITION_SIZE=$(stat -c%s Firmware/ESP32/RX5808/build/rx5808-partition-table-${VERSION}.bin)
+          
+          cat > Firmware/ESP32/RX5808/build/manifest.json <<EOF
+          {
+            "name": "RX5808-Div",
+            "version": "${VERSION}",
+            "build_date": "${BUILD_DATE}",
+            "commit": "${COMMIT_SHA}",
+            "new_install_improv_wait_time": 0,
+            "new_install_prompt_erase": true,
+            "builds": [
+              {
+                "chipFamily": "ESP32",
+                "parts": [
+                  {
+                    "path": "rx5808-bootloader-${VERSION}.bin",
+                    "offset": 4096
+                  },
+                  {
+                    "path": "rx5808-partition-table-${VERSION}.bin",
+                    "offset": 32768
+                  },
+                  {
+                    "path": "rx5808-esp32-${VERSION}.bin",
+                    "offset": 65536
+                  }
+                ]
+              }
+            ]
+          }
+          EOF
+          
+          cat Firmware/ESP32/RX5808/build/manifest.json
+      
+      - name: Upload firmware artifacts
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-${{ steps.version.outputs.VERSION }}
+          path: |
+            Firmware/ESP32/RX5808/build/rx5808-*.bin
+            Firmware/ESP32/RX5808/build/manifest.json
+      
+      - name: Upload to release
+        if: github.event_name == 'release'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=${{ steps.version.outputs.VERSION }}
+          cd Firmware/ESP32/RX5808/build
+          
+          # Upload firmware files
+          gh release upload $VERSION \
+            rx5808-esp32-${VERSION}.bin \
+            rx5808-bootloader-${VERSION}.bin \
+            rx5808-partition-table-${VERSION}.bin \
+            manifest.json \
+            --clobber
