@@ -1,7 +1,15 @@
 #ifndef __RX5808_DIV_HW_VERS_H
 #define __RX5808_DIV_HW_VERS_H
 
-// Software Version v1.5.1
+// Software Version v1.7.0
+// Changes in v1.7.0:
+//   - ELRS Wireless VRX Backpack: Control channel switching from ELRS TX via ESP-NOW
+//   - VTX Band Swap Feature: Configurable R↔L band remapping for non-standard VTX firmware
+//   - NVS Persistence: Band swap and ELRS settings survive power cycles
+//   - Fixed RX5808 hardware tuning on remote channel commands
+//   - Improved RSSI accuracy after channel changes
+//   - Added 50ms PLL settling time for stable tuning
+//
 // Changes in v1.5.1:
 //   - Advanced diversity algorithm with dwell, hysteresis, cooldown
 //   - Variance-based stability scoring for better switching decisions
@@ -16,8 +24,8 @@
 //   - Fixed Band E frequency mapping for VTX compatibility
 //   - D0WDQ6_VER hardware variant support (v1.2 hardware)
 #define RX5808_VERSION_MAJOR  1
-#define RX5808_VERSION_MINOR  5
-#define RX5808_VERSION_PATCH  1
+#define RX5808_VERSION_MINOR  7
+#define RX5808_VERSION_PATCH  0
 
 //#define ST7735S
 #define D0WDQ6_VER   // ENABLE this for v1.2 hardware

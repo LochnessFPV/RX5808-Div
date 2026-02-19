@@ -1,7 +1,7 @@
 /**
  * @file diversity.c
  * @brief Advanced diversity switching algorithm implementation
- * @version 1.5.1
+ * @version 1.7.0
  */
 
 #include "diversity.h"
@@ -72,7 +72,7 @@ static uint8_t g_switch_history_index = 0;
  * @brief Initialize diversity system
  */
 void diversity_init(void) {
-    ESP_LOGI(TAG, "Initializing diversity system v1.5.1");
+    ESP_LOGI(TAG, "Initializing diversity system v1.7.0");
     
     memset(&g_diversity_state, 0, sizeof(diversity_state_t));
     

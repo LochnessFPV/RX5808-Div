@@ -1,7 +1,7 @@
 /**
  * @file diversity.h
  * @brief Advanced diversity switching algorithm based on Starfish specification  
- * @version 1.5.1
+ * @version 1.7.0
  * 
  * Implements intelligent diversity switching with:
  * - RSSI normalization and calibration

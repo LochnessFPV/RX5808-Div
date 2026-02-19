@@ -366,7 +366,8 @@ Replace `COMx` with your serial port (e.g., COM3 on Windows, /dev/ttyUSB0 on Lin
 Contributions are welcome! This project builds on the excellent work of:
 - **Original RX5808-Div:** [Ft-Available](https://github.com/Ft-Available/RX5808-Div)
 - **OSD Support:** ChisBread (林面包)
-- **ExpressLRS Backpack:** LochnessFPV
+- **ESP-NOW Protocol Research:** [jp39](https://github.com/jp39/RX5808-Div)
+- **ELRS Backpack Integration:** LochnessFPV
 
 ### How to Contribute
 1. Fork the repository
