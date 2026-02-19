@@ -42,6 +42,8 @@ static lv_obj_t* elrs_bind_button;        // Button with "BIND"/"UNBIND"/"CANCEL
 static lv_obj_t* elrs_status_value;       // "Bound"/"Unbound"/"Binding..." status text
 static lv_timer_t* elrs_status_timer = NULL;
 static elrs_bind_state_t last_elrs_state = ELRS_STATE_UNBOUND;
+static lv_obj_t* vtx_band_swap_label;     // "VTX Bands" title  
+static lv_obj_t* vtx_band_swap_switch;    // ON/OFF switch for R↔L band swapping
 #endif
 static lv_obj_t* exit_label;
 static lv_obj_t* back_light_bar;
@@ -192,6 +194,17 @@ static void setup_event_callback(lv_event_t* event)
                     ELRS_Backpack_Start_Binding(30000);
                 }
             }
+            else if (obj == vtx_band_swap_label)
+            {
+                // Toggle VTX band swap
+                if (lv_obj_has_state(vtx_band_swap_switch, LV_STATE_CHECKED) == true) {
+                    lv_obj_clear_state(vtx_band_swap_switch, LV_STATE_CHECKED);
+                    ELRS_Backpack_Set_VTX_Band_Swap(false);
+                } else {
+                    lv_obj_add_state(vtx_band_swap_switch, LV_STATE_CHECKED);
+                    ELRS_Backpack_Set_VTX_Band_Swap(true);
+                }
+            }
             #endif
         }
         else if (key_status == LV_KEY_LEFT) {
@@ -219,6 +232,13 @@ static void setup_event_callback(lv_event_t* event)
             {
                 lv_obj_clear_state(beep_switch, LV_STATE_CHECKED);
             }
+            #ifdef ELRS_BACKPACK_ENABLE
+            else if (obj == vtx_band_swap_label)
+            {
+                lv_obj_clear_state(vtx_band_swap_switch, LV_STATE_CHECKED);
+                ELRS_Backpack_Set_VTX_Band_Swap(false);
+            }
+            #endif
             else if(obj == osd_format_label)
             {
                 --osd_format_selid;
@@ -291,6 +311,13 @@ static void setup_event_callback(lv_event_t* event)
             {
                 lv_obj_add_state(beep_switch, LV_STATE_CHECKED);
             }
+            #ifdef ELRS_BACKPACK_ENABLE
+            else if (obj == vtx_band_swap_label)
+            {
+                lv_obj_add_state(vtx_band_swap_switch, LV_STATE_CHECKED);
+                ELRS_Backpack_Set_VTX_Band_Swap(true);
+            }
+            #endif
             else if(obj == osd_format_label)
             {
                 ++osd_format_selid;
@@ -397,6 +424,7 @@ static void page_setup_set_language(uint16_t language)
         lv_obj_set_style_text_font(beep_label, &lv_font_montserrat_12, LV_STATE_DEFAULT);
         #ifdef ELRS_BACKPACK_ENABLE
         lv_obj_set_style_text_font(elrs_bind_button_label, &lv_font_montserrat_12, LV_STATE_DEFAULT);
+        lv_obj_set_style_text_font(vtx_band_swap_label, &lv_font_montserrat_12, LV_STATE_DEFAULT);
         #endif
         lv_obj_set_style_text_font(osd_format_label, &lv_font_montserrat_12, LV_STATE_DEFAULT);
         lv_obj_set_style_text_font(language_label, &lv_font_montserrat_12, LV_STATE_DEFAULT);
@@ -411,6 +439,7 @@ static void page_setup_set_language(uint16_t language)
         lv_label_set_text_fmt(beep_label, "Beep");
         #ifdef ELRS_BACKPACK_ENABLE
         lv_label_set_text_fmt(elrs_bind_button_label, "ELRS BP");
+        lv_label_set_text_fmt(vtx_band_swap_label, "Swap R/L");
         #endif
         lv_label_set_text_fmt(osd_format_label, "OSD");
         lv_label_set_text_fmt(language_label, "Language");
@@ -433,6 +462,7 @@ static void page_setup_set_language(uint16_t language)
         lv_obj_set_style_text_font(beep_label, &lv_font_chinese_12, LV_STATE_DEFAULT);
         #ifdef ELRS_BACKPACK_ENABLE
         lv_obj_set_style_text_font(elrs_bind_button_label, &lv_font_chinese_12, LV_STATE_DEFAULT);
+        lv_obj_set_style_text_font(vtx_band_swap_label, &lv_font_chinese_12, LV_STATE_DEFAULT);
         #endif
         lv_obj_set_style_text_font(osd_format_label, &lv_font_chinese_12, LV_STATE_DEFAULT);
         lv_obj_set_style_text_font(language_label, &lv_font_chinese_12, LV_STATE_DEFAULT);
@@ -447,6 +477,7 @@ static void page_setup_set_language(uint16_t language)
         lv_label_set_text_fmt(beep_label, "蜂鸣器 ");
         #ifdef ELRS_BACKPACK_ENABLE
         lv_label_set_text_fmt(elrs_bind_button_label, "ELRS背包");
+        lv_label_set_text_fmt(vtx_band_swap_label, "Swap R/L");
         #endif
         lv_label_set_text_fmt(osd_format_label, "OSD制式");
         lv_label_set_text_fmt(language_label, "系统语言 ");
@@ -593,19 +624,38 @@ void page_setup_create()
         lv_label_set_text(elrs_bind_button, "BIND");
         lv_label_set_text(elrs_status_value, "Unbound");
     }
+    
+    // VTX Band Swap Toggle (for non-standard VTX with R/L swapped)
+    vtx_band_swap_label = lv_label_create(menu_setup_contain);
+    lv_obj_add_style(vtx_band_swap_label, &style_label, LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(vtx_band_swap_label, LABEL_FOCUSE_COLOR, LV_STATE_FOCUSED);
+    lv_label_set_text(vtx_band_swap_label, "Swap R/L");
+    lv_obj_set_pos(vtx_band_swap_label, 0, 97);
+    lv_obj_set_size(vtx_band_swap_label, 75, 20);
+    lv_label_set_long_mode(vtx_band_swap_label, LV_LABEL_LONG_WRAP);
+
+    vtx_band_swap_switch = lv_switch_create(menu_setup_contain);
+    lv_obj_set_size(vtx_band_swap_switch, 50, 14);
+    lv_obj_set_pos(vtx_band_swap_switch, 110, 100);
+    lv_obj_set_style_bg_color(vtx_band_swap_switch, SWITCH_COLOR, LV_PART_INDICATOR | LV_STATE_CHECKED);
+    if (ELRS_Backpack_Get_VTX_Band_Swap()) {
+        lv_obj_add_state(vtx_band_swap_switch, LV_STATE_CHECKED);
+    } else {
+        lv_obj_clear_state(vtx_band_swap_switch, LV_STATE_CHECKED);
+    }
     #endif
 
     osd_format_label = lv_label_create(menu_setup_contain);
     lv_obj_add_style(osd_format_label, &style_label, LV_STATE_DEFAULT);
     lv_obj_set_style_bg_color(osd_format_label, LABEL_FOCUSE_COLOR, LV_STATE_FOCUSED);   
-    lv_obj_set_pos(osd_format_label, 0, 97);
+    lv_obj_set_pos(osd_format_label, 0, 116);
     lv_obj_set_size(osd_format_label, 75, 20);
     lv_label_set_long_mode(osd_format_label, LV_LABEL_LONG_WRAP);
 
     osd_format_setup_label = lv_label_create(menu_setup_contain);
     lv_obj_add_style(osd_format_setup_label, &style_setup_item, LV_STATE_DEFAULT);
     lv_obj_set_style_bg_color(osd_format_setup_label, LABEL_FOCUSE_COLOR, LV_STATE_FOCUSED);
-    lv_obj_set_pos(osd_format_setup_label, 110, 97);
+    lv_obj_set_pos(osd_format_setup_label, 110, 116);
     lv_obj_set_size(osd_format_setup_label, 50, 18);
     lv_label_set_long_mode(osd_format_setup_label, LV_LABEL_LONG_WRAP);
 
@@ -613,7 +663,7 @@ void page_setup_create()
     lv_obj_add_style(language_label, &style_label, LV_STATE_DEFAULT);
     lv_obj_set_style_bg_color(language_label, LABEL_FOCUSE_COLOR, LV_STATE_FOCUSED);
     //lv_label_set_text_fmt(language_label, "Language");
-    lv_obj_set_pos(language_label, 0, 116);
+    lv_obj_set_pos(language_label, 0, 135);
     lv_obj_set_size(language_label, 75, 20);
     lv_label_set_long_mode(language_label, LV_LABEL_LONG_WRAP);
 
@@ -622,7 +672,7 @@ void page_setup_create()
     lv_obj_add_style(language_setup_label, &style_setup_item, LV_STATE_DEFAULT);
     lv_obj_set_style_bg_color(language_setup_label, LABEL_FOCUSE_COLOR, LV_STATE_FOCUSED);
     //lv_label_set_text_fmt(language_setup_label, (const char*)(&language_label_text[language_selid % 2]));
-    lv_obj_set_pos(language_setup_label, 110, 116);
+    lv_obj_set_pos(language_setup_label, 110, 135);
     lv_obj_set_size(language_setup_label, 50, 18);
     lv_label_set_long_mode(language_setup_label, LV_LABEL_LONG_WRAP);
 
@@ -630,7 +680,7 @@ void page_setup_create()
     lv_obj_add_style(signal_source_label, &style_label, LV_STATE_DEFAULT);
     lv_obj_set_style_bg_color(signal_source_label, LABEL_FOCUSE_COLOR, LV_STATE_FOCUSED);
     //lv_label_set_text_fmt(signal_source_label, "Signal");
-    lv_obj_set_pos(signal_source_label, 0, 135);
+    lv_obj_set_pos(signal_source_label, 0, 154);
     lv_obj_set_size(signal_source_label, 75, 20);
     lv_label_set_long_mode(signal_source_label, LV_LABEL_LONG_WRAP);
 
@@ -638,7 +688,7 @@ void page_setup_create()
     lv_obj_add_style(signal_source_setup_label, &style_setup_item, LV_STATE_DEFAULT);
     lv_obj_set_style_bg_color(signal_source_setup_label, LABEL_FOCUSE_COLOR, LV_STATE_FOCUSED);
     //lv_label_set_text_fmt(signal_source_setup_label, (const char*)(&signal_source_label_text[signal_source_selid % 4]));
-    lv_obj_set_pos(signal_source_setup_label, 110, 135);
+    lv_obj_set_pos(signal_source_setup_label, 110, 154);
     lv_obj_set_size(signal_source_setup_label, 50, 18);
     lv_label_set_long_mode(signal_source_setup_label, LV_LABEL_LONG_WRAP);
 
@@ -646,7 +696,7 @@ void page_setup_create()
     diversity_mode_label = lv_label_create(menu_setup_contain);
     lv_obj_add_style(diversity_mode_label, &style_label, LV_STATE_DEFAULT);
     lv_obj_set_style_bg_color(diversity_mode_label, LABEL_FOCUSE_COLOR, LV_STATE_FOCUSED);
-    lv_obj_set_pos(diversity_mode_label, 0, 154);
+    lv_obj_set_pos(diversity_mode_label, 0, 173);
     lv_obj_set_size(diversity_mode_label, 75, 20);
     lv_label_set_long_mode(diversity_mode_label, LV_LABEL_LONG_WRAP);
 
@@ -712,6 +762,7 @@ void page_setup_create()
     #ifdef ELRS_BACKPACK_ENABLE
     lv_obj_add_event_cb(elrs_bind_button_label, setup_event_callback, LV_EVENT_KEY, NULL);
     lv_obj_add_event_cb(elrs_bind_button, setup_event_callback, LV_EVENT_KEY, NULL);
+    lv_obj_add_event_cb(vtx_band_swap_label, setup_event_callback, LV_EVENT_KEY, NULL);
     #endif
     lv_obj_add_event_cb(osd_format_label, setup_event_callback, LV_EVENT_KEY, NULL);
     lv_obj_add_event_cb(language_label, setup_event_callback, LV_EVENT_KEY, NULL);
@@ -727,6 +778,7 @@ void page_setup_create()
     lv_group_add_obj(setup_group, beep_label);
     #ifdef ELRS_BACKPACK_ENABLE
     lv_group_add_obj(setup_group, elrs_bind_button_label);
+    lv_group_add_obj(setup_group, vtx_band_swap_label);
     #endif
     lv_group_add_obj(setup_group, osd_format_label);
     lv_group_add_obj(setup_group, language_label);
@@ -749,6 +801,7 @@ void page_setup_create()
     lv_amin_start(beep_label, -100, 0, 1, 150, 150, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
     #ifdef ELRS_BACKPACK_ENABLE
     lv_amin_start(elrs_bind_button_label, -100, 0, 1, 150, 200, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
+    lv_amin_start(vtx_band_swap_label, -100, 0, 1, 150, 250, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
     #endif
     lv_amin_start(osd_format_label, -100, 0, 1, 150, 250, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
     lv_amin_start(language_label, -100, 0, 1, 150, 300, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
@@ -786,6 +839,7 @@ static void page_setup_exit()
     lv_amin_start(beep_label, lv_obj_get_x(beep_label), -100, 1, 200, 150, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
     #ifdef ELRS_BACKPACK_ENABLE
     lv_amin_start(elrs_bind_button_label, lv_obj_get_x(elrs_bind_button_label), -100, 1, 200, 200, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
+    lv_amin_start(vtx_band_swap_label, lv_obj_get_x(vtx_band_swap_label), -100, 1, 200, 250, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
     #endif
     lv_amin_start(osd_format_label, lv_obj_get_x(osd_format_label), -100, 1, 200, 250, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
     lv_amin_start(language_label, lv_obj_get_x(language_label), -100, 1, 200, 300, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);

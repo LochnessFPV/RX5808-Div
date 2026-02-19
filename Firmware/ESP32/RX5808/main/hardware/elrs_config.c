@@ -173,3 +173,60 @@ bool elrs_config_load_tx_mac(uint8_t tx_mac[6]) {
              tx_mac[0], tx_mac[1], tx_mac[2], tx_mac[3], tx_mac[4], tx_mac[5]);
     return true;
 }
+
+bool elrs_config_save_vtx_band_swap(bool swap_enabled) {
+    nvs_handle_t nvs_handle;
+    esp_err_t err = nvs_open(ELRS_NVS_NAMESPACE, NVS_READWRITE, &nvs_handle);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to open NVS for writing band swap: %s", esp_err_to_name(err));
+        return false;
+    }
+
+    uint8_t value = swap_enabled ? 1 : 0;
+    err = nvs_set_u8(nvs_handle, "vtx_swap", value);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to write VTX band swap: %s", esp_err_to_name(err));
+        nvs_close(nvs_handle);
+        return false;
+    }
+
+    err = nvs_commit(nvs_handle);
+    nvs_close(nvs_handle);
+
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to commit VTX band swap: %s", esp_err_to_name(err));
+        return false;
+    }
+
+    ESP_LOGI(TAG, "VTX band swap saved: %s", swap_enabled ? "ENABLED (R↔L)" : "DISABLED (standard)");
+    return true;
+}
+
+bool elrs_config_load_vtx_band_swap(bool *swap_enabled) {
+    if (swap_enabled == NULL) {
+        ESP_LOGE(TAG, "Band swap buffer is NULL");
+        return false;
+    }
+
+    nvs_handle_t nvs_handle;
+    esp_err_t err = nvs_open(ELRS_NVS_NAMESPACE, NVS_READONLY, &nvs_handle);
+    if (err != ESP_OK) {
+        ESP_LOGD(TAG, "Failed to open NVS for reading band swap: %s", esp_err_to_name(err));
+        *swap_enabled = false;  // Default to standard (no swap)
+        return false;
+    }
+
+    uint8_t value = 0;
+    err = nvs_get_u8(nvs_handle, "vtx_swap", &value);
+    nvs_close(nvs_handle);
+
+    if (err != ESP_OK) {
+        ESP_LOGD(TAG, "VTX band swap not found, using default (standard): %s", esp_err_to_name(err));
+        *swap_enabled = false;  // Default to standard (no swap)
+        return false;
+    }
+
+    *swap_enabled = (value != 0);
+    ESP_LOGI(TAG, "VTX band swap loaded: %s", *swap_enabled ? "ENABLED (R↔L)" : "DISABLED (standard)");
+    return true;
+}

@@ -44,4 +44,18 @@ bool elrs_config_save_tx_mac(const uint8_t tx_mac[6]);
  */
 bool elrs_config_load_tx_mac(uint8_t tx_mac[6]);
 
+/**
+ * @brief Save VTX band swap setting to NVS
+ * @param swap_enabled true to enable R/L band swapping for non-standard VTX, false for standard
+ * @return true if saved successfully, false on error
+ */
+bool elrs_config_save_vtx_band_swap(bool swap_enabled);
+
+/**
+ * @brief Load VTX band swap setting from NVS
+ * @param swap_enabled Pointer to store the swap setting (default: false if not found)
+ * @return true if loaded successfully, false if not found (defaults to false/standard)
+ */
+bool elrs_config_load_vtx_band_swap(bool *swap_enabled);
+
 #endif // ELRS_CONFIG_H

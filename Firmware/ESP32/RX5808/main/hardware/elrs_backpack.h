@@ -80,4 +80,24 @@ uint32_t ELRS_Backpack_Get_Binding_Timeout_Remaining(void);
  */
 bool ELRS_Backpack_Set_Channel_Safe(uint8_t channel);
 
+/**
+ * @brief Get VTX band swap setting
+ * When enabled, swaps R (32-39) ↔ L (40-47) band indices to match non-standard VTX tables
+ * where Raceband and Lowband frequencies are reversed.
+ * Enable this if your VTX transmits Lowband frequencies when you select Raceband (and vice versa).
+ * @return true if band swap enabled, false for standard band order
+ */
+bool ELRS_Backpack_Get_VTX_Band_Swap(void);
+
+/**
+ * @brief Set VTX band swap setting  
+ * Enable this if your VTX has R and L bands swapped in its frequency table.
+ * Symptoms: Selecting R1 in VTX Admin shows video on L1, selecting L1 shows video on R1.
+ * This remaps incoming channel indices so the receiver tunes to the correct frequency.
+ * Setting is saved to NVS for persistence across reboots.
+ * @param swap_enabled true to enable R↔L swapping, false for standard (A,B,E,F,R,L)
+ * @return true if setting saved successfully, false on NVS error
+ */
+bool ELRS_Backpack_Set_VTX_Band_Swap(bool swap_enabled);
+
 #endif // ELRS_BACKPACK_H

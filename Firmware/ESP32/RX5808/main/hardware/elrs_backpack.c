@@ -43,6 +43,7 @@ static uint32_t binding_timeout_ms = 0;
 static uint32_t binding_start_time = 0;
 static SemaphoreHandle_t channel_mutex = NULL;  // Thread safety for channel changes
 static uint8_t last_remote_channel = 0xFF;  // Track last remote channel for logging
+static bool vtx_band_swap_enabled = false;  // VTX band swap for non-standard VTX tables
 
 // Forward Declarations
 static void espnow_recv_cb(const esp_now_recv_info_t *recv_info, const uint8_t *data, int data_len);
@@ -288,6 +289,21 @@ static void handle_msp_set_vtx_config(const uint8_t *payload, uint16_t length) {
     // Extract channel from byte[0] (ELRS backpack standard)
     uint8_t channel_index = payload[0];
     ESP_LOGI(TAG, "Channel from byte[0] = 0x%02X (%u decimal)", channel_index, channel_index);
+    
+    // VTX Band Swap: If enabled, swap R (32-39) ↔ L (40-47) to match non-standard VTX tables
+    if (vtx_band_swap_enabled && channel_index >= 32 && channel_index <= 47) {
+        uint8_t original_index = channel_index;
+        
+        if (channel_index >= 32 && channel_index <= 39) {
+            // R (32-39) → L (40-47)
+            channel_index = 40 + (channel_index - 32);
+        } else if (channel_index >= 40 && channel_index <= 47) {
+            // L (40-47) → R (32-39)
+            channel_index = 32 + (channel_index - 40);
+        }
+        
+        ESP_LOGI(TAG, "VTX Band Swap: %u → %u (R↔L remapped)", original_index, channel_index);
+    }
     
     // Validate channel index (0-47 for standard bands)
     if (channel_index > 47) {
@@ -563,6 +579,10 @@ bool ELRS_Backpack_Init(void) {
         binding_state = ELRS_STATE_UNBOUND;
     }
     
+    // Load VTX band swap setting (for non-standard VTX with R/L swapped)
+    elrs_config_load_vtx_band_swap(&vtx_band_swap_enabled);
+    ESP_LOGI(TAG, "VTX band mode: %s", vtx_band_swap_enabled ? "SWAPPED (R↔L)" : "STANDARD");
+    
     // Start WiFi (must be called before setting channel)
     ESP_ERROR_CHECK(esp_wifi_start());
     
@@ -811,5 +831,24 @@ bool ELRS_Backpack_Set_Channel_Safe(uint8_t channel) {
     // Release mutex
     xSemaphoreGive(channel_mutex);
     
+    return true;
+}
+
+// Get VTX Band Swap Setting
+bool ELRS_Backpack_Get_VTX_Band_Swap(void) {
+    return vtx_band_swap_enabled;
+}
+
+// Set VTX Band Swap Setting
+bool ELRS_Backpack_Set_VTX_Band_Swap(bool swap_enabled) {
+    vtx_band_swap_enabled = swap_enabled;
+    
+    // Save to NVS for persistence
+    if (!elrs_config_save_vtx_band_swap(swap_enabled)) {
+        ESP_LOGW(TAG, "Failed to save VTX band swap setting to NVS");
+        return false;
+    }
+    
+    ESP_LOGI(TAG, "VTX band swap %s", swap_enabled ? "ENABLED (R↔L)" : "DISABLED (standard)");
     return true;
 }
