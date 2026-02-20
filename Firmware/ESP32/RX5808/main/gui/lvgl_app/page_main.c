@@ -6,6 +6,7 @@
 #include "page_menu.h"
 #include "page_spectrum.h"
 #include "page_scan.h"
+#include "page_scan_table.h"
 #include "page_setup.h"
 #include "page_diversity_calib.h"
 #include "page_bandx_channel_select.h"
@@ -108,7 +109,7 @@ static void quick_menu_action_handler(quick_action_t action) {
     switch (action) {
         case QUICK_ACTION_SCAN:
             // Start quick scan
-            page_scan_create();
+            page_scan_table_create();
             break;
             
         case QUICK_ACTION_SPECTRUM:

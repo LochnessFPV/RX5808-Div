@@ -108,7 +108,7 @@ static void page_scan_chart_exit()
     led_set_pattern(lock_flag ? LED_PATTERN_SOLID : LED_PATTERN_HEARTBEAT);
 
     lv_obj_del_delayed(page_scan_chart_contain, 500);
-    lv_fun_delayed(page_scan_create, 500);
+    lv_fun_param_delayed(page_menu_create, 500, item_spectrum);
     lv_group_del(scan_group);
 }
 

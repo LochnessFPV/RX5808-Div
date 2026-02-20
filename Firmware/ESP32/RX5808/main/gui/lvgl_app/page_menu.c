@@ -2,6 +2,7 @@
 #include "page_about.h"
 #include "page_setup.h"
 #include "page_scan.h"
+#include "page_scan_table.h"
 #include "page_diversity_calib.h"
 #include "page_drone_finder.h"
 #include "page_spectrum.h"
@@ -69,11 +70,11 @@ void Menu_event_callback(lv_event_t* event)
             }
             else if (obj == rx5808_div_menu[item_calib].item_contain) {
                 page_menu_exit();
-                page_diversity_calib_create();
+                page_scan_create_mode(scan_menu_mode_calib);
             }
             else if (obj == rx5808_div_menu[item_quick_scan].item_contain) {
                 page_menu_exit();
-                page_scan_create();
+                page_scan_table_create();
             }
             else if (obj == rx5808_div_menu[item_drone_finder].item_contain) {
                 page_menu_exit();
@@ -81,7 +82,7 @@ void Menu_event_callback(lv_event_t* event)
             }
             else if (obj == rx5808_div_menu[item_spectrum].item_contain) {
                 page_menu_exit();
-                page_spectrum_create(false, 0);  // Normal spectrum mode
+                page_scan_create_mode(scan_menu_mode_spectrum);
             }
             else if (obj == rx5808_div_menu[item_bandx_select].item_contain) {
                 page_menu_exit();
