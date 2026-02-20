@@ -6,6 +6,7 @@
 #include "rx5808_config.h"
 #include "lvgl_stl.h"
 #include "beep.h"
+#include "led.h"
 
 LV_FONT_DECLARE(lv_font_chinese_16);
 
@@ -204,6 +205,8 @@ static void page_scan_table_exit()
         lv_obj_del(confirm_dialog);
         confirm_dialog = NULL;
     }
+
+    led_set_pattern(lock_flag ? LED_PATTERN_SOLID : LED_PATTERN_HEARTBEAT);
     
     lv_obj_del_delayed(page_scan_table_contain, 500);
     lv_fun_delayed(page_scan_create, 500);
@@ -224,6 +227,9 @@ static void confirm_dialog_event(lv_event_t* event)
             RX5808_Set_Freq(Rx5808_Freq[max_channel / 8][max_channel % 8]);
             Rx5808_Set_Channel(max_channel);
             rx5808_div_setup_upload(rx5808_div_config_channel);
+            
+            // Trigger LED double-blink on successful channel switch
+            led_trigger_double_blink();
             
             // Close dialog and return to scan menu
             lv_obj_del(confirm_dialog);
@@ -318,6 +324,10 @@ void page_scan_table_create()
 {
     time_repeat_count = 0;
     max_rssi = 0;
+    
+    // Set LED to fast blink during scanning
+    led_set_pattern(LED_PATTERN_FAST_BLINK);
+    
     page_scan_table_contain = lv_obj_create(lv_scr_act());
     lv_obj_remove_style_all(page_scan_table_contain);
     lv_obj_set_style_bg_color(page_scan_table_contain, lv_color_make(0, 0, 0), LV_STATE_DEFAULT);

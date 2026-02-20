@@ -5,6 +5,7 @@
 #include "rx5808.h"
 #include "lvgl_stl.h"
 #include "beep.h"
+#include "led.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -72,6 +73,12 @@ static void update_ui_for_state(void)
     const char* warning_text = "";
     int progress = 0;
     bool is_english = (RX5808_Get_Language() == 0);
+
+    if (current_state == CALIB_STATE_FLOOR_SAMPLING || current_state == CALIB_STATE_PEAK_SAMPLING) {
+        led_set_pattern(LED_PATTERN_BREATHING);
+    } else {
+        led_set_pattern(lock_flag ? LED_PATTERN_SOLID : LED_PATTERN_HEARTBEAT);
+    }
 
     switch(current_state) {
         case CALIB_STATE_WELCOME:

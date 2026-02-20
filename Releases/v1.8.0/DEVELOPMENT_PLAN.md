@@ -247,18 +247,22 @@ Fix critical UX pain points identified in v1.7.1:
 ---
 
 ### **Phase 7: LED Status Feedback** ⭐ Priority: MEDIUM
-**Status:** 🔴 Not Started  
+**Status:** ✅ Complete  
 **Target:** Week 5  
 **Files:**
 - `main/hardware/led.c` (NEW)
 - `main/hardware/led.h` (NEW)
 - `main/gui/lvgl_app/page_main.c`
+- `main/gui/lvgl_app/page_scan_table.c`
+- `main/gui/lvgl_app/page_scan_chart.c`
+- `main/gui/lvgl_app/page_diversity_calib.c`
 
 **Tasks:**
-- [ ] Create LED task module
-- [ ] Implement patterns (heartbeat, scanning, etc.)
-- [ ] Integrate with lock state
-- [ ] Signal strength indicators
+- [x] Create LED task module
+- [x] Implement patterns (heartbeat, scanning, etc.)
+- [x] Integrate with lock state
+- [x] Integrate with scan/calibration states
+- [x] Signal strength indicators
 
 **Acceptance Criteria:**
 - ✅ Locked: Solid LED
@@ -266,6 +270,26 @@ Fix critical UX pain points identified in v1.7.1:
 - ✅ Scanning: Fast blink (5 Hz)
 - ✅ Calibrating: Breathing pulse
 - ✅ Signal strength indicators
+
+**Implementation Details:**
+
+**main/hardware/led.c + led.h:**
+- Added LED pattern engine with FreeRTOS task and mutex-protected API
+- Implemented patterns: OFF, SOLID, HEARTBEAT, FAST_BLINK, BREATHING, SIGNAL_STRENGTH, DOUBLE_BLINK
+- Added helper APIs: `led_set_signal_strength()` and `led_trigger_double_blink()`
+
+**page_main.c:**
+- Added `led_init()` during main page creation (single-init guard)
+- Added lock-state LED mapping: locked → solid, unlocked → heartbeat
+
+**page_scan_table.c + page_scan_chart.c:**
+- Set LED to fast blink while scan is active
+- Trigger double blink on ENTER-confirmed channel switch
+- Restore lock/unlock LED pattern on page exit
+
+**page_diversity_calib.c:**
+- Set LED to breathing during floor/peak sampling states
+- Restore lock/unlock LED pattern for setup/results/summary states
 
 ---
 
@@ -280,13 +304,13 @@ Fix critical UX pain points identified in v1.7.1:
 - [x] Find highest RSSI channel
 - [x] Show confirmation dialog
 - [x] Auto-highlight strongest
-- [ ] LED activity feedback (deferred to Phase 7)
+- [x] LED activity feedback
 
 **Acceptance Criteria:**
 - ✅ Detects strongest signal
 - ✅ Confirmation prompt
 - ✅ Auto-highlight in table
-- ⏸️ LED double-blink on switch (Phase 7 dependency)
+- ✅ LED double-blink on switch
 
 **Implementation Details:**
 

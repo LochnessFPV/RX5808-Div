@@ -22,6 +22,7 @@
 #include "../quick_menu.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "led.h"
 
 //LV_FONT_DECLARE(lv_font_chinese_16);
 LV_FONT_DECLARE(lv_font_chinese_12);
@@ -339,11 +340,13 @@ static void event_callback(lv_event_t* event)
         {
             lv_obj_set_style_bg_color(lock_btn, lv_color_make(160, 160, 160), LV_STATE_DEFAULT);
             lock_flag = true;
+            led_set_pattern(LED_PATTERN_SOLID);  // LED solid when locked
         }
         else
         {
             lv_obj_set_style_bg_color(lock_btn, lv_color_make(255, 0, 0), LV_STATE_DEFAULT);
             lock_flag = false;
+            led_set_pattern(LED_PATTERN_HEARTBEAT);  // LED heartbeat when unlocked
         }
         // 开启或关闭OSD与帧同步
         video_composite_switch(lock_flag);
@@ -825,6 +828,20 @@ void page_main_rssi_quality_create(uint16_t type)
 void page_main_create()
 {
     page_main_active = true;  // Mark page as active
+    
+    // Initialize LED module (Phase 7: LED Status Feedback)
+    static bool led_initialized = false;
+    if (!led_initialized) {
+        led_init();
+        led_initialized = true;
+    }
+    
+    // Set initial LED pattern based on lock state
+    if (lock_flag) {
+        led_set_pattern(LED_PATTERN_SOLID);      // Locked: Solid LED
+    } else {
+        led_set_pattern(LED_PATTERN_HEARTBEAT);  // Unlocked: Heartbeat
+    }
     
     // Initialize navigation module with lock state
     navigation_init(&lock_flag);
