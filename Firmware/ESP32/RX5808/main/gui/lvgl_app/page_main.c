@@ -68,6 +68,14 @@ static bool blink_visible = true;           // Blink state
 static uint32_t last_click_time = 0;        // For double-click detection (ms)
 #define DOUBLE_CLICK_TIME_MS 500            // Maximum time between clicks for double-click
 
+// Band X auto-repeat feature
+static uint32_t bandx_key_press_start = 0;  // When key was pressed
+static bool bandx_key_is_held = false;      // Track if key is being held
+static lv_key_t bandx_held_key = 0;          // Which key is being held
+#define BANDX_AUTO_REPEAT_START_MS 500       // Start auto-repeat after 500ms
+#define BANDX_FAST_ADJUST_START_MS 2000      // Fast adjust (10MHz) after 2s
+#define BANDX_AUTO_REPEAT_INTERVAL_MS 100    // Repeat every 100ms
+
 // Quick menu support
 static quick_menu_t* quick_menu = NULL;
 static uint32_t right_press_start_time = 0;  // Track when RIGHT was pressed
@@ -81,6 +89,8 @@ static void fre_label_update_band_x(uint16_t freq);
 static void blink_timer_callback(lv_timer_t* timer);
 static void start_band_x_freq_edit(void);
 static void stop_band_x_freq_edit(void);
+static uint32_t bandx_get_freq_color(uint16_t freq);
+static void bandx_adjust_frequency(int8_t direction);
 static void quick_menu_action_handler(quick_action_t action);
 
 /**
@@ -134,6 +144,9 @@ static void event_callback(lv_event_t* event)
 {
     lv_event_code_t code = lv_event_get_code(event);
     
+    // Check if on Band X for special handling (declare early for all event code paths)
+    bool is_band_x = RX5808_Is_Band_X();
+    
     // Quick menu intercept - if menu is active, handle keys there
     if (quick_menu && quick_menu_is_active(quick_menu)) {
         if (code == LV_EVENT_KEY) {
@@ -178,9 +191,6 @@ static void event_callback(lv_event_t* event)
             if ((key_status >= LV_KEY_UP && key_status <= LV_KEY_LEFT)) {
                 beep_turn_on();
             }
-            
-            // Check if on Band X for special handling
-            bool is_band_x = RX5808_Is_Band_X();
             
             if (key_status == LV_KEY_LEFT) {
                 if (is_band_x) {
@@ -232,14 +242,8 @@ static void event_callback(lv_event_t* event)
 
             } else if (key_status == LV_KEY_UP) {
                 if (is_band_x && band_x_freq_edit_mode) {
-                    // Band X edit mode: Increase frequency by 1MHz
-                    uint16_t freq = RX5808_Get_Band_X_Freq(channel_count);
-                    freq++;
-                    if (freq > 5950) freq = 5950;
-                    RX5808_Set_Band_X_Freq(channel_count, freq);
-                    RX5808_Set_Freq(freq);
-                    blink_visible = true;  // Show frequency during adjustment
-                    fre_label_update_band_x(freq);
+                    // Band X edit mode: Use auto-repeat frequency adjustment
+                    bandx_adjust_frequency(1);  // Increase frequency
                 } else {
                     // Normal: Change band (works for Band X when not in edit mode)
                     Chx_count--;
@@ -259,14 +263,8 @@ static void event_callback(lv_event_t* event)
 
             } else if (key_status == LV_KEY_DOWN) {
                 if (is_band_x && band_x_freq_edit_mode) {
-                    // Band X edit mode: Decrease frequency by 1MHz
-                    uint16_t freq = RX5808_Get_Band_X_Freq(channel_count);
-                    freq--;
-                    if (freq < 5300) freq = 5300;
-                    RX5808_Set_Band_X_Freq(channel_count, freq);
-                    RX5808_Set_Freq(freq);
-                    blink_visible = true;  // Show frequency during adjustment
-                    fre_label_update_band_x(freq);
+                    // Band X edit mode: Use auto-repeat frequency adjustment
+                    bandx_adjust_frequency(-1);  // Decrease frequency
                 } else {
                     // Normal: Change band (works for Band X when not in edit mode)
                     Chx_count++;
@@ -284,6 +282,22 @@ static void event_callback(lv_event_t* event)
                     }
                 }
             }
+        }
+    }
+    // Handle key press/release for Band X auto-repeat
+    else if (code == LV_EVENT_PRESSED) {
+        lv_key_t key = lv_indev_get_key(lv_indev_get_act());
+        if (is_band_x && band_x_freq_edit_mode && (key == LV_KEY_UP || key == LV_KEY_DOWN)) {
+            bandx_key_press_start = lv_tick_get();
+            bandx_key_is_held = true;
+            bandx_held_key = key;
+        }
+    }
+    else if (code == LV_EVENT_RELEASED) {
+        lv_key_t key = lv_indev_get_key(lv_indev_get_act());
+        if (is_band_x && band_x_freq_edit_mode && (key == LV_KEY_UP || key == LV_KEY_DOWN)) {
+            bandx_key_is_held = false;
+            bandx_key_press_start = 0;
         }
     }
     else if (code == LV_EVENT_CLICKED) {
@@ -533,6 +547,18 @@ static void blink_timer_callback(lv_timer_t* timer)
 {
     if (!band_x_freq_edit_mode) return;
     
+    // Handle auto-repeat if key is held
+    if (bandx_key_is_held && bandx_key_press_start > 0) {
+        uint32_t hold_duration = lv_tick_get() - bandx_key_press_start;
+        
+        // Start auto-repeat after 500ms hold
+        if (hold_duration >= BANDX_AUTO_REPEAT_START_MS) {
+            // Trigger frequency adjustment
+            int8_t direction = (bandx_held_key == LV_KEY_UP) ? 1 : -1;
+            bandx_adjust_frequency(direction);
+        }
+    }
+    
     blink_visible = !blink_visible;
     
     // Toggle visibility of frequency labels with asymmetric timing
@@ -557,15 +583,24 @@ static void start_band_x_freq_edit(void)
     band_x_freq_edit_mode = true;
     blink_visible = true;
     
-    // Create blink timer (start with 600ms visible period)
+    // Create blink timer (100ms period for both blink and auto-repeat)
     if (blink_timer == NULL) {
-        blink_timer = lv_timer_create(blink_timer_callback, 600, NULL);
+        blink_timer = lv_timer_create(blink_timer_callback, 100, NULL);
+    }
+    
+    // Show initial frequency in green (standard range assumed)
+    uint16_t freq = RX5808_Get_Band_X_Freq(channel_count);
+    uint32_t color = bandx_get_freq_color(freq);
+    for (uint8_t i = 0; i < fre_label_count; i++) {
+        lv_obj_set_style_text_color(frequency_label[fre_cur][i], lv_color_hex(color), LV_STATE_DEFAULT);
     }
 }
 
 static void stop_band_x_freq_edit(void)
 {
     band_x_freq_edit_mode = false;
+    bandx_key_is_held = false;
+    bandx_key_press_start = 0;
     
     // Delete blink timer
     if (blink_timer != NULL) {
@@ -573,10 +608,70 @@ static void stop_band_x_freq_edit(void)
         blink_timer = NULL;
     }
     
-    // Ensure frequency labels are visible
+    // Ensure frequency labels are visible and reset color to white
     blink_visible = true;
     for (uint8_t i = 0; i < fre_label_count; i++) {
         lv_obj_clear_flag(frequency_label[fre_cur][i], LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_style_text_color(frequency_label[fre_cur][i], lv_color_hex(0xFFFFFF), LV_STATE_DEFAULT);
+    }
+}
+
+/**
+ * @brief Get validation color for Band X frequency
+ * @param freq Frequency in MHz
+ * @return Color hex value (green  for valid standard range, amber for extended, red for out of range)
+ */
+static uint32_t bandx_get_freq_color(uint16_t freq)
+{
+    if (freq >= 5645 && freq <= 5945) {
+        // Standard FPV racing range - green
+        return 0x00FF00;
+    } else if (freq >= 5300 && freq < 5645) {
+        // Extended low range - amber
+        return 0xFFA500;
+    } else if (freq > 5945 && freq <= 5950) {
+        // Extended high range - amber
+        return 0xFFA500;
+    } else {
+        // Out of range - red
+        return 0xFF0000;
+    }
+}
+
+/**
+ * @brief Adjust Band X frequency with auto-repeat and fast adjust
+ * @param direction 1 for increase, -1 for decrease
+ */
+static void bandx_adjust_frequency(int8_t direction)
+{
+    uint16_t freq = RX5808_Get_Band_X_Freq(channel_count);
+    uint32_t hold_duration = lv_tick_get() - bandx_key_press_start;
+    
+    // Determine step size based on hold duration
+    uint16_t step = 1;  // Default: 1 MHz
+    if (hold_duration >= BANDX_FAST_ADJUST_START_MS) {
+        step = 10;  // Fast adjust: 10 MHz after 2s
+    }
+    
+    // Adjust frequency
+    if (direction > 0) {
+        freq += step;
+        if (freq > 5950) freq = 5950;
+    } else {
+        freq -= step;
+        if (freq < 5300) freq = 5300;
+    }
+    
+    // Apply frequency
+    RX5808_Set_Band_X_Freq(channel_count, freq);
+    RX5808_Set_Freq(freq);
+    blink_visible = true;  // Show frequency during adjustment
+    fre_label_update_band_x(freq);
+    
+    // Update color based on range validation
+    uint32_t color = bandx_get_freq_color(freq);
+    for (uint8_t i = 0; i < fre_label_count; i++) {
+        lv_obj_set_style_text_color(frequency_label[fre_cur][i], lv_color_hex(color), LV_STATE_DEFAULT);
     }
 }
 
