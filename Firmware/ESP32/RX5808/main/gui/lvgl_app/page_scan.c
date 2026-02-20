@@ -54,8 +54,9 @@ static void page_scan_callback(lv_event_t* event)
             }
         }
         else if (key_status == LV_KEY_LEFT) {
+            // Return to menu showing Quick Scan item
             page_scan_exit();
-            lv_fun_param_delayed(page_menu_create, 500, item_scan);
+            lv_fun_param_delayed(page_menu_create, 500, item_quick_scan);
         }
         else if (key_status == LV_KEY_UP) {
             lv_group_focus_prev(scan_group);

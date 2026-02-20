@@ -35,7 +35,7 @@ static void event_handler(lv_event_t* event)
         if (key == LV_KEY_LEFT || key == LV_KEY_ENTER) {
             beep_turn_on();
             page_drone_finder_exit();
-            lv_fun_param_delayed(page_menu_create, 500, item_scan);
+            lv_fun_param_delayed(page_menu_create, 500, item_drone_finder);
         }
         else if (key == LV_KEY_RIGHT) {
             // Reset peak values
