@@ -1,6 +1,7 @@
 #include "rx5808.h"
 #include "driver/gpio.h"
 #include "driver/adc.h"
+#include "driver/spi_master.h"
 #include "esp_adc_cal.h"
 #include "esp_log.h"
 #include "sys/unistd.h"
@@ -17,6 +18,10 @@ static const char *TAG = "RX5808";
 
 // SPI Bus Mutex - protects soft SPI from concurrent access
 static SemaphoreHandle_t spi_mutex = NULL;
+
+// Hardware SPI device handle for RX5808 (DMA-accelerated)
+static spi_device_handle_t rx5808_spi = NULL;
+static bool rx5808_spi_initialized = false;
 
 
 #define Synthesizer_Register_A 				              0x00  
@@ -165,6 +170,54 @@ void RX5808_RSSI_ADC_Init()
 
 }
 
+/**
+ * @brief Initialize hardware SPI for RX5808 (DMA-accelerated)
+ */
+static void RX5808_Init_Hardware_SPI(void) {
+    esp_err_t ret;
+    
+    // VSPI bus configuration for RX5808
+    spi_bus_config_t buscfg = {
+        .miso_io_num = -1,                      // RX5808 is write-only
+        .mosi_io_num = RX5808_MOSI,             // GPIO 23
+        .sclk_io_num = RX5808_SCLK,             // GPIO 18
+        .quadwp_io_num = -1,
+        .quadhd_io_num = -1,
+        .max_transfer_sz = 4,                   // Only need 4 bytes (32 bits)
+    };
+    
+    // RX5808 device configuration
+    spi_device_interface_config_t devcfg = {
+        .clock_speed_hz = 1*1000*1000,          // 1MHz (RX5808 max is ~2MHz, be conservative)
+        .mode = 0,                              // SPI mode 0 (CPOL=0, CPHA=0)
+        .spics_io_num = RX5808_CS,              // GPIO 5
+        .queue_size = 4,                        // Queue up to 4 transactions
+        .pre_cb = NULL,
+        .post_cb = NULL,
+        .flags = SPI_DEVICE_BIT_LSBFIRST,       // RX5808 expects LSB first
+        .command_bits = 0,
+        .address_bits = 0,
+        .dummy_bits = 0,
+    };
+    
+    // Initialize VSPI bus (SPI3)
+    ret = spi_bus_initialize(VSPI_HOST, &buscfg, SPI_DMA_CH_AUTO);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to initialize VSPI bus: %s", esp_err_to_name(ret));
+        return;
+    }
+    
+    // Attach RX5808 to the SPI bus
+    ret = spi_bus_add_device(VSPI_HOST, &devcfg, &rx5808_spi);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to add RX5808 to SPI bus: %s", esp_err_to_name(ret));
+        return;
+    }
+    
+    rx5808_spi_initialized = true;
+    ESP_LOGI(TAG, "RX5808 hardware SPI initialized (DMA-accelerated, 1MHz)");
+}
+
 
 void RX5808_Init()
 {
@@ -173,10 +226,11 @@ void RX5808_Init()
     if (spi_mutex == NULL) {
         ESP_LOGE(TAG, "Failed to create SPI mutex!");
     }
+    
+    // Initialize hardware SPI for RX5808 (DMA-accelerated)
+    RX5808_Init_Hardware_SPI();
 
-    gpio_set_direction(RX5808_SCLK, GPIO_MODE_OUTPUT);	
-	gpio_set_direction(RX5808_MOSI, GPIO_MODE_OUTPUT);	
-	gpio_set_direction(RX5808_CS, GPIO_MODE_OUTPUT);	
+    // GPIO setup (CS and switches still need GPIO control)
 	gpio_set_direction(RX5808_SWITCH0, GPIO_MODE_OUTPUT);
 	gpio_reset_pin(RX5808_SWITCH1);	
 	gpio_set_direction(RX5808_SWITCH1, GPIO_MODE_OUTPUT);	
@@ -203,13 +257,14 @@ void RX5808_Init()
 	// 		NULL//任务句柄
 	// 		);
 
+	// Move RSSI ADC sampling to Core 1 for better load distribution (v1.7.1)
 	xTaskCreatePinnedToCore( (TaskFunction_t)DMA2_Stream0_IRQHandler,
-	                          "rx5808_task", 
-							  1024, 
+	                          "rx5808_rssi", 
+							  1536,  // Increased stack for Core 1
 							  NULL,
 							   5,
 							    NULL, 
-								0 );
+								1 );  // Core 1
 }
 
 void RX5808_Pause() {
@@ -234,28 +289,62 @@ void Soft_SPI_Send_One_Bit(uint8_t bit)
 
 void Send_Register_Data(uint8_t addr,uint32_t data)   
 {
-  // Take mutex before accessing SPI bus
-  if (spi_mutex != NULL) {
-      xSemaphoreTake(spi_mutex, portMAX_DELAY);
-  }
-  
-  gpio_set_level(RX5808_CS, 0);
-  uint8_t read_write=1;   //1 write     0 read
- 
-	for(uint8_t i=0;i<4;i++)
-	  Soft_SPI_Send_One_Bit(((addr>>i)&0x01));
+  if (rx5808_spi_initialized && rx5808_spi != NULL) {
+      // Hardware SPI with DMA (v1.7.1)
+      // RX5808 protocol: 4-bit addr + 1-bit R/W + 20-bit data = 25 bits (LSB first)
+      // Pack into 32 bits (4 bytes) with LSB first
+      
+      uint32_t spi_data = 0;
+      spi_data |= (addr & 0x0F);              // 4-bit address at bits 3-0
+      spi_data |= (1 << 4);                   // 1-bit write flag at bit 4
+      spi_data |= (data & 0xFFFFF) << 5;      // 20-bit data at bits 24-5
+      // Bits 31-25 are padding (ignored by RX5808 when CS goes high)
+      
+      // Prepare SPI transaction
+      spi_transaction_t trans = {
+          .flags = 0,
+          .length = 25,                       // 25 bits (actual data length)
+          .tx_buffer = &spi_data,
+          .rx_buffer = NULL,
+      };
+      
+      // Queue transaction (non-blocking with DMA)
+      esp_err_t ret = spi_device_queue_trans(rx5808_spi, &trans, portMAX_DELAY);
+      if (ret != ESP_OK) {
+          ESP_LOGE(TAG, "SPI queue transaction failed: %s", esp_err_to_name(ret));
+      }
+      
+      // Wait for transaction to complete (DMA handles the transfer)
+      spi_transaction_t *rtrans;
+      ret = spi_device_get_trans_result(rx5808_spi, &rtrans, portMAX_DELAY);
+      if (ret != ESP_OK) {
+          ESP_LOGE(TAG, "SPI get result failed: %s", esp_err_to_name(ret));
+      }
+  } else {
+      // Fallback to bit-banged SPI if hardware SPI fails
+      // Take mutex before accessing SPI bus
+      if (spi_mutex != NULL) {
+          xSemaphoreTake(spi_mutex, portMAX_DELAY);
+      }
+      
+      gpio_set_level(RX5808_CS, 0);
+      uint8_t read_write=1;   //1 write     0 read
+     
+	  for(uint8_t i=0;i<4;i++)
+	      Soft_SPI_Send_One_Bit(((addr>>i)&0x01));
       Soft_SPI_Send_One_Bit(read_write&0x01);
-	for(uint8_t i=0;i<20;i++)
-	  Soft_SPI_Send_One_Bit(((data>>i)&0x01));
-	
-	gpio_set_level(RX5808_CS, 1);
-	gpio_set_level(RX5808_SCLK, 0);
-	gpio_set_level(RX5808_MOSI, 0);
-	
-	// Release mutex after SPI access
-	if (spi_mutex != NULL) {
-	    xSemaphoreGive(spi_mutex);
-	}
+	  for(uint8_t i=0;i<20;i++)
+	      Soft_SPI_Send_One_Bit(((data>>i)&0x01));
+	  
+	  gpio_set_level(RX5808_CS, 1);
+	  gpio_set_level(RX5808_SCLK, 0);
+	  gpio_set_level(RX5808_MOSI, 0);
+	  
+	  // Release mutex after SPI access
+	  if (spi_mutex != NULL) {
+	      xSemaphoreGive(spi_mutex);
+	  }
+  }
 }
 
 void RX5808_Set_Freq(uint16_t Fre)   
