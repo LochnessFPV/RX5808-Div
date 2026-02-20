@@ -93,7 +93,7 @@ volatile uint16_t Rx5808_OSD_Format=0;
 volatile uint16_t Rx5808_Language=1;
 volatile uint16_t Rx5808_Signal_Source=0;
 // ELRS Backpack: No longer a simple toggle - binding managed through page_setup.c UI
-volatile uint16_t Rx5808_CPU_Freq=1;  // 160MHz by default (0=80MHz, 1=160MHz, 2=240MHz)
+volatile uint16_t Rx5808_CPU_Freq=3;  // AUTO by default (0=80MHz, 1=160MHz, 2=240MHz, 3=AUTO)
 volatile uint16_t Rx5808_GUI_Update_Rate=1;  // 70ms (14Hz) by default (0=100ms/10Hz, 1=70ms/14Hz, 2=50ms/20Hz, 3=40ms/25Hz, 4=20ms/50Hz, 5=10ms/100Hz)
 
 const char Rx5808_ChxMap[7] = {'A', 'B', 'E', 'F', 'R', 'L', 'X'};
@@ -420,9 +420,9 @@ void RX5808_Set_Signal_Source(uint16_t value)
 
 void RX5808_Set_CPU_Freq(uint16_t value)
 {
-    if (value > 2) value = 1;  // Default to 160MHz if invalid
+	if (value > 3) value = 3;  // Default to AUTO if invalid
     Rx5808_CPU_Freq = value;
-    ESP_LOGI(TAG, "CPU Frequency set to: %s", value == 0 ? "80MHz" : (value == 1 ? "160MHz" : "240MHz"));
+	ESP_LOGI(TAG, "CPU Frequency set to: %s", value == 0 ? "80MHz" : (value == 1 ? "160MHz" : (value == 2 ? "240MHz" : "AUTO")));
 }
 
 void RX5808_Set_GUI_Update_Rate(uint16_t value)

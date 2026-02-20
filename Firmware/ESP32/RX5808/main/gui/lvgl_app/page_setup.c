@@ -64,7 +64,7 @@ const char signal_source_label_text[][6] = { "Auto","Recv1","Recv2","None" };
 const char signal_source_label_chinese_text[][12] = { "自动","接收机1","接收机2","关闭"};
 const char diversity_mode_label_text[][6] = { "RACE","FREE","L-R" };
 const char diversity_mode_label_chinese_text[][9] = { "竞速","自由","远程"};
-const char cpu_freq_label_text[][8] = { "80MHz","160MHz","240MHz" };
+const char cpu_freq_label_text[][8] = { "80MHz","160MHz","240MHz","AUTO" };
 const char gui_update_rate_label_text[][7] = { "10Hz","14Hz","20Hz","25Hz","50Hz","100Hz" };
 const char gui_update_rate_label_chinese_text[][10] = { "10赫兹","14赫兹","20赫兹","25赫兹","50赫兹","100赫兹" };
 
@@ -207,6 +207,18 @@ static void setup_event_callback(lv_event_t* event)
                 }
             }
             #endif
+            else if (obj == restore_defaults_label)
+            {
+                cpu_freq_selid = 65532 + CPU_FREQ_DEFAULT;
+                gui_update_rate_selid = 65532 + GUI_UPDATE_RATE_DEFAULT;
+
+                lv_label_set_text_fmt(cpu_freq_setup_label, (const char*)(&cpu_freq_label_text[cpu_freq_selid % 4]));
+                RX5808_Set_CPU_Freq(cpu_freq_selid % 4);
+
+                lv_label_set_text_fmt(gui_update_rate_setup_label, (const char*)(&gui_update_rate_label_text[gui_update_rate_selid % 6]));
+                RX5808_Set_GUI_Update_Rate(gui_update_rate_selid % 6);
+                page_setup_set_language(language_selid % 2);
+            }
         }
         else if (key_status == LV_KEY_LEFT) {
             if (obj == back_light_label)
@@ -272,8 +284,8 @@ static void setup_event_callback(lv_event_t* event)
             else if (obj == cpu_freq_label)
             {
                 --cpu_freq_selid;
-                lv_label_set_text_fmt(cpu_freq_setup_label, (const char*)(&cpu_freq_label_text[cpu_freq_selid % 3]));
-                RX5808_Set_CPU_Freq(cpu_freq_selid % 3);
+                lv_label_set_text_fmt(cpu_freq_setup_label, (const char*)(&cpu_freq_label_text[cpu_freq_selid % 4]));
+                RX5808_Set_CPU_Freq(cpu_freq_selid % 4);
             }
             else if (obj == gui_update_rate_label)
             {
@@ -351,8 +363,8 @@ static void setup_event_callback(lv_event_t* event)
             else if (obj == cpu_freq_label)
             {
                 ++cpu_freq_selid;
-                lv_label_set_text_fmt(cpu_freq_setup_label, (const char*)(&cpu_freq_label_text[cpu_freq_selid % 3]));
-                RX5808_Set_CPU_Freq(cpu_freq_selid % 3);
+                lv_label_set_text_fmt(cpu_freq_setup_label, (const char*)(&cpu_freq_label_text[cpu_freq_selid % 4]));
+                RX5808_Set_CPU_Freq(cpu_freq_selid % 4);
             }
             else if (obj == gui_update_rate_label)
             {
@@ -455,6 +467,7 @@ static void page_setup_set_language(uint16_t language)
         lv_label_set_text_fmt(language_setup_label, (const char*)(&language_label_text[language_selid % 2]));
         lv_label_set_text_fmt(signal_source_setup_label, (const char*)(&signal_source_label_text[signal_source_selid % 4]));
         lv_label_set_text_fmt(diversity_mode_setup_label, (const char*)(&diversity_mode_label_text[diversity_mode_selid % 3]));
+        lv_label_set_text_fmt(cpu_freq_setup_label, (const char*)(&cpu_freq_label_text[cpu_freq_selid % 4]));
         lv_label_set_text_fmt(gui_update_rate_setup_label, (const char*)(&gui_update_rate_label_text[gui_update_rate_selid % 6]));
     }
     else
@@ -495,6 +508,7 @@ static void page_setup_set_language(uint16_t language)
         lv_label_set_text_fmt(language_setup_label, (const char*)(&language_label_text[language_selid % 2]));
         lv_label_set_text_fmt(signal_source_setup_label, (const char*)(&signal_source_label_chinese_text[signal_source_selid % 4]));
         lv_label_set_text_fmt(diversity_mode_setup_label, (const char*)(&diversity_mode_label_chinese_text[diversity_mode_selid % 3]));
+        lv_label_set_text_fmt(cpu_freq_setup_label, (const char*)(&cpu_freq_label_text[cpu_freq_selid % 4]));
         lv_label_set_text_fmt(gui_update_rate_setup_label, (const char*)(&gui_update_rate_label_chinese_text[gui_update_rate_selid % 6]));
     }
 }
@@ -730,7 +744,7 @@ void page_setup_create()
     lv_obj_set_pos(cpu_freq_setup_label, 110, 173);
     lv_obj_set_size(cpu_freq_setup_label, 50, 18);
     lv_label_set_long_mode(cpu_freq_setup_label, LV_LABEL_LONG_WRAP);
-    lv_label_set_text_fmt(cpu_freq_setup_label, (const char*)(&cpu_freq_label_text[cpu_freq_selid % 3]));
+    lv_label_set_text_fmt(cpu_freq_setup_label, (const char*)(&cpu_freq_label_text[cpu_freq_selid % 4]));
 
     // GUI/Diversity Update Rate selector
     gui_update_rate_label = lv_label_create(menu_setup_contain);
@@ -750,14 +764,14 @@ void page_setup_create()
     restore_defaults_label = lv_label_create(menu_setup_contain);
     lv_obj_add_style(restore_defaults_label, &style_label, LV_STATE_DEFAULT);
     lv_obj_set_style_bg_color(restore_defaults_label, LABEL_FOCUSE_COLOR, LV_STATE_FOCUSED);
-    lv_obj_set_pos(restore_defaults_label, 0, 192);
+    lv_obj_set_pos(restore_defaults_label, 0, 211);
     lv_obj_set_size(restore_defaults_label, 75, 20);
     lv_label_set_long_mode(restore_defaults_label, LV_LABEL_LONG_WRAP);
         exit_label = lv_label_create(menu_setup_contain);
     lv_obj_add_style(exit_label, &style_label, LV_STATE_DEFAULT);
     lv_obj_set_style_bg_color(exit_label, LABEL_FOCUSE_COLOR, LV_STATE_FOCUSED);
     //lv_label_set_text_fmt(exit_label, "SAVE&EXIT");
-    lv_obj_set_pos(exit_label, 0, 211);
+    lv_obj_set_pos(exit_label, 0, 230);
     lv_obj_set_size(exit_label, 75, 20);
     lv_label_set_long_mode(exit_label, LV_LABEL_LONG_WRAP);
 

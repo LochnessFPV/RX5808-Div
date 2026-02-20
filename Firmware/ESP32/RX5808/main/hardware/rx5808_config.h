@@ -24,7 +24,7 @@
 #define  LANGUAGE_DEFAULT         0               //English
 #define  SIGNAL_SOURCE_DEFAULT    0               //auto
 // ELRS_BACKPACK removed - binding managed through ELRS_Backpack API in page_setup.c
-#define  CPU_FREQ_DEFAULT         1               //160MHz (0=80MHz, 1=160MHz, 2=240MHz)
+#define  CPU_FREQ_DEFAULT         3               //AUTO (0=80MHz, 1=160MHz, 2=240MHz, 3=AUTO)
 #define  GUI_UPDATE_RATE_DEFAULT  1               //70ms = 14Hz (0=100ms/10Hz, 1=70ms/14Hz, 2=50ms/20Hz, 3=40ms/25Hz, 4=20ms/50Hz, 5=10ms/100Hz)
 
 #define  SETUP_ID_DEFAULT         0x1234

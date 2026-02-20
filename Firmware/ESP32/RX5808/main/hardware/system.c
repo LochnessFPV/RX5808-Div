@@ -59,29 +59,38 @@ void LED_Init()
 // Apply CPU frequency based on user setting
 void system_apply_cpu_freq(uint16_t freq_setting)
 {
-    uint32_t freq_mhz;
+	uint32_t freq_mhz;
+	bool auto_mode = false;
     
     // Map setting to actual frequency
     switch (freq_setting) {
         case 0:  freq_mhz = 80;  break;
         case 1:  freq_mhz = 160; break;
         case 2:  freq_mhz = 240; break;
-        default: freq_mhz = 160; break;  // Default to 160MHz
+		case 3:
+		default:
+			auto_mode = true;
+			freq_mhz = 240;
+			break;
     }
-    
-    ESP_LOGI(TAG, "Applying CPU frequency: %lu MHz", freq_mhz);
+
+	ESP_LOGI(TAG, "Applying CPU frequency mode: %s", auto_mode ? "AUTO" : "FIXED");
     
     #ifdef CONFIG_PM_ENABLE
     // Use power management to set frequency dynamically
     esp_pm_config_esp32_t pm_config = {
-        .max_freq_mhz = freq_mhz,
-        .min_freq_mhz = freq_mhz,  // Keep constant for predictable performance
+		.max_freq_mhz = freq_mhz,
+		.min_freq_mhz = auto_mode ? 80 : freq_mhz,
         .light_sleep_enable = false
     };
     
     esp_err_t ret = esp_pm_configure(&pm_config);
     if (ret == ESP_OK) {
-        ESP_LOGI(TAG, "CPU frequency successfully set to %lu MHz", freq_mhz);
+		if (auto_mode) {
+			ESP_LOGI(TAG, "CPU frequency set to AUTO range: 80-%lu MHz", freq_mhz);
+		} else {
+			ESP_LOGI(TAG, "CPU frequency fixed at %lu MHz", freq_mhz);
+		}
     } else {
         ESP_LOGW(TAG, "Failed to set CPU frequency via PM (error %d), trying direct method", ret);
     }
@@ -89,8 +98,8 @@ void system_apply_cpu_freq(uint16_t freq_setting)
     // Power management not enabled, log current frequency
     uint32_t current_freq = 0;
     esp_clk_tree_src_get_freq_hz(SOC_MOD_CLK_CPU, ESP_CLK_TREE_SRC_FREQ_PRECISION_CACHED, &current_freq);
-    ESP_LOGI(TAG, "PM not enabled. Current CPU frequency: %lu MHz (requested: %lu MHz)", 
-             current_freq / 1000000, freq_mhz);
+	ESP_LOGI(TAG, "PM not enabled. Current CPU frequency: %lu MHz (requested mode: %s)", 
+			 current_freq / 1000000, auto_mode ? "AUTO" : "FIXED");
     ESP_LOGI(TAG, "To enable dynamic frequency scaling, set CONFIG_PM_ENABLE=y in sdkconfig");
     #endif
 }
