@@ -236,6 +236,8 @@ static void setup_event_callback(lv_event_t* event)
                     setup_back_light = 10;
                 LCD_SET_BLK(setup_back_light);
                 lv_bar_set_value(back_light_bar, setup_back_light, LV_ANIM_OFF);
+                lv_event_stop_bubbling(event);  // Prevent group navigation
+                return;
             }
             else if (obj == led_strength_label)
             {
@@ -245,6 +247,8 @@ static void setup_event_callback(lv_event_t* event)
                     setup_led_strength = 0;
                 RX5808_Set_LED_Brightness(setup_led_strength);
                 lv_bar_set_value(led_strength_bar, setup_led_strength, LV_ANIM_OFF);
+                lv_event_stop_bubbling(event);  // Prevent group navigation
+                return;
             }
             else if(obj == fan_speed_label)
             {
@@ -253,6 +257,8 @@ static void setup_event_callback(lv_event_t* event)
                     setup_fan_speed = 0;
                 fan_set_speed(setup_fan_speed);
                 lv_bar_set_value(fan_speed_bar, setup_fan_speed, LV_ANIM_OFF);
+                lv_event_stop_bubbling(event);  // Prevent group navigation
+                return;
             }
             else if (obj == boot_animation_label)
             {
@@ -324,6 +330,8 @@ static void setup_event_callback(lv_event_t* event)
                     setup_back_light = 100;
                 LCD_SET_BLK(setup_back_light);
                 lv_bar_set_value(back_light_bar, setup_back_light, LV_ANIM_OFF);
+                lv_event_stop_bubbling(event);  // Prevent group navigation
+                return;
             }
             else if (obj == led_strength_label)
             {
@@ -332,6 +340,8 @@ static void setup_event_callback(lv_event_t* event)
                     setup_led_strength = 100;
                 RX5808_Set_LED_Brightness(setup_led_strength);
                 lv_bar_set_value(led_strength_bar, setup_led_strength, LV_ANIM_OFF);
+                lv_event_stop_bubbling(event);  // Prevent group navigation
+                return;
             }
              else if(obj == fan_speed_label)
             {
@@ -340,6 +350,8 @@ static void setup_event_callback(lv_event_t* event)
                     setup_fan_speed = 100;
                fan_set_speed(setup_fan_speed);
                 lv_bar_set_value(fan_speed_bar, setup_fan_speed, LV_ANIM_OFF);
+                lv_event_stop_bubbling(event);  // Prevent group navigation
+                return;
             }
             else if (obj == boot_animation_label)
             {
