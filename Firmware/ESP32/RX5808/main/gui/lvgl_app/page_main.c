@@ -19,6 +19,9 @@
 #include "lv_port_disp.h"
 #include "diversity.h"
 #include "navigation.h"
+#include "../quick_menu.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 //LV_FONT_DECLARE(lv_font_chinese_16);
 LV_FONT_DECLARE(lv_font_chinese_12);
@@ -86,41 +89,40 @@ static void quick_menu_action_handler(quick_action_t action);
 static void quick_menu_action_handler(quick_action_t action) {
     if (!page_main_active) return;
     
+    page_main_exit();
+    
+    // Small delay for smooth transition
+    vTaskDelay(pdMS_TO_TICKS(50));
+    
     switch (action) {
         case QUICK_ACTION_SCAN:
             // Start quick scan
-            page_main_exit();
-            lv_fun_delayed(page_scan_create, 500);
+            page_scan_create();
             break;
             
         case QUICK_ACTION_SPECTRUM:
-            // Open spectrum analyzer
-            page_main_exit();
-            lv_fun_param_delayed(page_spectrum_create, 500, false, 0);
+            // Open spectrum analyzer (normal mode)
+            page_spectrum_create(false, 0);
             break;
             
         case QUICK_ACTION_CALIBRATION:
             // Open calibration
-            page_main_exit();
-            lv_fun_delayed(page_diversity_calib_create, 500);
+            page_diversity_calib_create();
             break;
             
         case QUICK_ACTION_BAND_X:
             // Open Band X editor
-            page_main_exit();
-            lv_fun_delayed(page_bandx_channel_select_create, 500);
+            page_bandx_channel_select_create();
             break;
             
         case QUICK_ACTION_SETTINGS:
             // Open setup page
-            page_main_exit();
-            lv_fun_delayed(page_setup_create, 500);
+            page_setup_create();
             break;
             
         case QUICK_ACTION_MAIN_MENU:
             // Open main menu
-            page_main_exit();
-            lv_fun_param_delayed(page_menu_create, 500, 0);
+            page_menu_create(0);
             break;
             
         default:
@@ -158,7 +160,7 @@ static void event_callback(lv_event_t* event)
             
             if (press_duration >= LONG_PRESS_MS) {
                 // Long-press detected: open quick menu
-                beep_turn_on(50);
+                beep_turn_on();
                 quick_menu_show(quick_menu, main_contain, quick_menu_action_handler);
                 return;  // Don't process as normal RIGHT press
             }
@@ -725,9 +727,6 @@ void page_main_create()
     
     // Initialize navigation module with lock state
     navigation_init(&lock_flag);
-    
-    // Initialize quick menu
-    quick_menu = quick_menu_init();
     
     // Initialize quick menu
     quick_menu = quick_menu_init();

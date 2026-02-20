@@ -16,8 +16,13 @@
  * @date 2026-02-20
  */
 
+// Suppress warnings for LVGL animation callbacks
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wcast-function-type"
+
 #include "quick_menu.h"
 #include "beep.h"
+#include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 
@@ -62,7 +67,7 @@ static void menu_event_handler(lv_event_t* e) {
             quick_action_t action = menu_items[index].action;
             
             // Audio feedback
-            beep_turn_on(50);
+            beep_turn_on();
             
             // Hide menu
             quick_menu_hide(menu);
@@ -101,7 +106,7 @@ static bool create_menu_ui(quick_menu_t* menu, lv_obj_t* parent) {
     // Create title label
     lv_obj_t* title = lv_label_create(menu_obj);
     lv_label_set_text(title, "Quick Actions");
-    lv_obj_set_style_text_font(title, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_16, 0);
     lv_obj_align(title, LV_ALIGN_TOP_MID, 0, 0);
     
     // Create list container for menu items
@@ -186,7 +191,7 @@ bool quick_menu_show(quick_menu_t* menu, lv_obj_t* parent, void (*on_action)(qui
     }
     
     // Audio feedback
-    beep_turn_on(50);
+    beep_turn_on();
     
     return true;
 }
@@ -218,14 +223,14 @@ bool quick_menu_handle_key(quick_menu_t* menu, uint32_t key) {
         case LV_KEY_UP:
             if (menu->selected_index > 1) {
                 menu->selected_index--;
-                beep_turn_on(30);
+                beep_turn_on();
             }
             return true;
             
         case LV_KEY_DOWN:
             if (menu->selected_index < QUICK_ACTION_COUNT - 1) {
                 menu->selected_index++;
-                beep_turn_on(30);
+                beep_turn_on();
             }
             return true;
             
@@ -233,7 +238,7 @@ bool quick_menu_handle_key(quick_menu_t* menu, uint32_t key) {
             // Select current item
             if (menu->selected_index > 0 && menu->selected_index < QUICK_ACTION_COUNT) {
                 quick_action_t action = menu_items[menu->selected_index].action;
-                beep_turn_on(50);
+                beep_turn_on();
                 quick_menu_hide(menu);
                 
                 if (menu->on_action) {
@@ -245,7 +250,7 @@ bool quick_menu_handle_key(quick_menu_t* menu, uint32_t key) {
         case LV_KEY_LEFT:
         case LV_KEY_ESC:
             // Cancel/close menu
-            beep_turn_on(30);
+            beep_turn_on();
             quick_menu_hide(menu);
             return true;
             
@@ -287,3 +292,6 @@ const char* quick_menu_action_name(quick_action_t action) {
     }
     return menu_items[action].label;
 }
+
+// Restore diagnostic settings
+#pragma GCC diagnostic pop
