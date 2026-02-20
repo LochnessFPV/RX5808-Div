@@ -169,6 +169,12 @@ static void event_callback(lv_event_t* event)
     else if (code == LV_EVENT_KEY) {
         if (lock_flag == true) {
             lv_key_t key_status = lv_indev_get_key(lv_indev_get_act());
+            
+            // Block RIGHT key events while tracking long-press (prevents channel change during hold)
+            if (key_status == LV_KEY_RIGHT && right_press_start_time > 0) {
+                return;  // Ignore RIGHT key repeats during long-press tracking
+            }
+            
             if ((key_status >= LV_KEY_UP && key_status <= LV_KEY_LEFT)) {
                 beep_turn_on();
             }
