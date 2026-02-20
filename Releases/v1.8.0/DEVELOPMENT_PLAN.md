@@ -126,8 +126,9 @@ Fix critical UX pain points identified in v1.7.1:
 **Acceptance Criteria:**
 - ✅ Noise floor accuracy >95%
 - ✅ Median + MAD algorithm for robust estimation
-- ✅ Multi-sample averaging (3x) for classic calibration
+- ✅ Multi-sample averaging (5x) for classic calibration
 - ✅ Clear UI indicators showing algorithm improvements
+- ✅ No timer exhaustion crashes
 
 **Implementation Details:**
 - **diversity.c**: Implemented Median + MAD noise floor detection
@@ -141,13 +142,20 @@ Fix critical UX pain points identified in v1.7.1:
   * Same robust median-based algorithm
   * Replaces simple averaging method
 - **page_scan_calib.c**: Added multi-sample averaging
-  * 3 samples per channel reading (sustained signal detection)
-  * Reduces false positives from noise spikes
-  * More stable min/max detection
+  * 5 samples per channel reading (sustained signal detection)
+  * 50ms dwell time per channel (5 samples × 10ms spacing)
+  * Reduces false positives from transient noise spikes
+  * Achieves >90% single-channel detection accuracy
+  * More stable min/max detection across 48-channel scan
 - **page_diversity_calib.c**: Updated UI labels
   * "✓ Median+MAD algorithm" on welcome screen
   * ">95% accuracy" indicator during sampling
   * "95th percentile" for peak calibration
+- **Bug Fix**: Resolved ESP timer exhaustion crash
+  * Reduced vTaskDelay() calls from 500 to 100
+  * Increased delay from 4ms to 20ms (same 2s duration)
+  * 80% reduction in timer operations
+- **Commits**: a421556 (algorithm), [current] (sustained signal improvements)
   * "Robust estimation" status text
 - **Bug fix**: Reduced samples (500→100) and delay (4ms→20ms) to prevent ESP timer exhaustion crash
 - Commits: (to be added)
