@@ -14,6 +14,7 @@
 #include "beep.h"
 #include "lv_port_disp.h"
 #include "diversity.h"
+#include "navigation.h"
 
 //LV_FONT_DECLARE(lv_font_chinese_16);
 LV_FONT_DECLARE(lv_font_chinese_12);
@@ -630,6 +631,9 @@ void page_main_rssi_quality_create(uint16_t type)
 void page_main_create()
 {
     page_main_active = true;  // Mark page as active
+    
+    // Initialize navigation module with lock state
+    navigation_init(&lock_flag);
     
     main_contain = lv_obj_create(lv_scr_act());
     lv_obj_remove_style_all(main_contain);
