@@ -27,6 +27,7 @@ static lv_timer_t* scan_table_timer;
 static lv_obj_t* scan_info_cont;
 static uint8_t  max_rssi;
 static uint8_t  max_channel;
+static lv_obj_t* confirm_dialog = NULL;
 
 static void page_scan_table_timer_event(lv_timer_t* tmr);
 static void scroll_event(lv_event_t* event);
@@ -34,6 +35,8 @@ static void page_scan_table_style_init(void);
 static void page_scan_table_style_deinit(void);
 static void group_obj_scroll(lv_group_t* g);
 static void page_scan_table_exit(void);
+static void show_switch_confirmation(void);
+static void confirm_dialog_event(lv_event_t* event);
 
 
 static const char fre_channel_nale[6][2] = { "A","B","E","F","R","L" };
@@ -123,9 +126,9 @@ static void page_scan_table_timer_event(lv_timer_t* tmr)
             lv_obj_set_style_text_opa(scan_info_label, LV_OPA_COVER, LV_STATE_DEFAULT);
             lv_obj_set_style_text_color(scan_info_label, lv_color_make(0, 255, 0), LV_STATE_DEFAULT);
             lv_label_set_text_fmt(fre_info_label, "%c%d:%d", Rx5808_ChxMap[max_channel / 8], (max_channel % 8) + 1, Rx5808_Freq[max_channel / 8][max_channel % 8]);
-            RX5808_Set_Freq(Rx5808_Freq[max_channel / 8][max_channel % 8]);
-            Rx5808_Set_Channel(max_channel);
-            rx5808_div_setup_upload(rx5808_div_config_channel);
+            
+            // Show confirmation dialog instead of auto-switching
+            show_switch_confirmation();
         }
         if (time_repeat_count < 47)
             RX5808_Set_Freq(Rx5808_Freq[(time_repeat_count + 1) / 8][(time_repeat_count + 1) % 8]);
@@ -195,10 +198,120 @@ static void page_scan_table_exit()
         RX5808_Set_Freq(Rx5808_Freq[Chx_count][channel_count]);
         lv_timer_del(scan_table_timer);
     }
+    
+    // Clean up confirmation dialog if it exists
+    if (confirm_dialog) {
+        lv_obj_del(confirm_dialog);
+        confirm_dialog = NULL;
+    }
+    
     lv_obj_del_delayed(page_scan_table_contain, 500);
     lv_fun_delayed(page_scan_create, 500);
     lv_fun_delayed(page_scan_table_style_deinit, 500);
     lv_group_del(scan_group);
+}
+
+static void confirm_dialog_event(lv_event_t* event)
+{
+    lv_event_code_t code = lv_event_get_code(event);
+    if (code == LV_EVENT_KEY)
+    {
+        beep_turn_on();
+        lv_key_t key_status = lv_indev_get_key(lv_indev_get_act());
+        if (key_status == LV_KEY_ENTER)
+        {
+            // User confirmed - switch to the strongest channel
+            RX5808_Set_Freq(Rx5808_Freq[max_channel / 8][max_channel % 8]);
+            Rx5808_Set_Channel(max_channel);
+            rx5808_div_setup_upload(rx5808_div_config_channel);
+            
+            // Close dialog and return to scan menu
+            lv_obj_del(confirm_dialog);
+            confirm_dialog = NULL;
+            page_scan_table_exit();
+        }
+        else if (key_status == LV_KEY_LEFT)
+        {
+            // User cancelled - just close dialog
+            lv_obj_del(confirm_dialog);
+            confirm_dialog = NULL;
+        }
+    }
+}
+
+static void show_switch_confirmation(void)
+{
+    // Create semi-transparent backdrop
+    confirm_dialog = lv_obj_create(lv_scr_act());
+    lv_obj_remove_style_all(confirm_dialog);
+    lv_obj_set_size(confirm_dialog, 160, 80);
+    lv_obj_set_pos(confirm_dialog, 0, 0);
+    lv_obj_set_style_bg_color(confirm_dialog, lv_color_make(0, 0, 0), LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(confirm_dialog, LV_OPA_90, LV_STATE_DEFAULT);
+    lv_obj_set_style_border_width(confirm_dialog, 2, LV_STATE_DEFAULT);
+    lv_obj_set_style_border_color(confirm_dialog, lv_color_make(0, 255, 0), LV_STATE_DEFAULT);
+    lv_obj_set_style_radius(confirm_dialog, 4, LV_STATE_DEFAULT);
+    
+    // Calculate RSSI percentage for display
+    uint8_t rssi_percent = max_rssi;
+    
+    // Title label
+    lv_obj_t* title_label = lv_label_create(confirm_dialog);
+    lv_obj_set_style_text_color(title_label, lv_color_make(255, 255, 255), LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(title_label, &lv_font_montserrat_16, LV_STATE_DEFAULT);
+    if (RX5808_Get_Language() == 0)
+    {
+        lv_label_set_text(title_label, "Switch Channel?");
+    }
+    else
+    {
+        lv_label_set_text(title_label, "切换频道?");
+    }
+    lv_obj_align(title_label, LV_ALIGN_TOP_MID, 0, 5);
+    
+    // Channel info label
+    lv_obj_t* channel_label = lv_label_create(confirm_dialog);
+    lv_obj_set_style_text_color(channel_label, lv_color_make(0, 255, 0), LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(channel_label, &lv_font_montserrat_16, LV_STATE_DEFAULT);
+    lv_label_set_text_fmt(channel_label, "%c%d: %d MHz",
+        Rx5808_ChxMap[max_channel / 8],
+        (max_channel % 8) + 1,
+        Rx5808_Freq[max_channel / 8][max_channel % 8]);
+    lv_obj_align(channel_label, LV_ALIGN_CENTER, 0, -5);
+    
+    // RSSI info label
+    lv_obj_t* rssi_label = lv_label_create(confirm_dialog);
+    lv_obj_set_style_text_color(rssi_label, lv_color_make(255, 255, 0), LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(rssi_label, &lv_font_montserrat_14, LV_STATE_DEFAULT);
+    if (RX5808_Get_Language() == 0)
+    {
+        lv_label_set_text_fmt(rssi_label, "Signal: %d%%", rssi_percent);
+    }
+    else
+    {
+        lv_label_set_text_fmt(rssi_label, "信号: %d%%", rssi_percent);
+    }
+    lv_obj_align(rssi_label, LV_ALIGN_CENTER, 0, 10);
+    
+    // Instructions label
+    lv_obj_t* instr_label = lv_label_create(confirm_dialog);
+    lv_obj_set_style_text_color(instr_label, lv_color_make(180, 180, 180), LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(instr_label, &lv_font_montserrat_12, LV_STATE_DEFAULT);
+    if (RX5808_Get_Language() == 0)
+    {
+        lv_label_set_text(instr_label, "ENTER=Yes  LEFT=No");
+    }
+    else
+    {
+        lv_label_set_text(instr_label, "确认=是  返回=否");
+    }
+    lv_obj_align(instr_label, LV_ALIGN_BOTTOM_MID, 0, -5);
+    
+    // Add to input group and set event handler
+    lv_group_remove_all_objs(scan_group);
+    lv_group_add_obj(scan_group, confirm_dialog);
+    lv_obj_add_event_cb(confirm_dialog, confirm_dialog_event, LV_EVENT_KEY, NULL);
+    lv_group_set_editing(scan_group, false);
 }
 
 void page_scan_table_create()

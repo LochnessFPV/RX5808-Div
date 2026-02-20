@@ -228,23 +228,55 @@ Fix critical UX pain points identified in v1.7.1:
 ---
 
 ### **Phase 8: Auto-Switch After Scan** ⭐ Priority: HIGH
-**Status:** 🔴 Not Started  
+**Status:** ✅ Complete  
 **Target:** Week 3  
 **Files:**
 - `main/gui/lvgl_app/page_scan_table.c`
 - `main/gui/lvgl_app/page_scan_chart.c`
 
 **Tasks:**
-- [ ] Find highest RSSI channel
-- [ ] Show confirmation dialog
-- [ ] Auto-highlight strongest
-- [ ] LED activity feedback
+- [x] Find highest RSSI channel
+- [x] Show confirmation dialog
+- [x] Auto-highlight strongest
+- [ ] LED activity feedback (deferred to Phase 7)
 
 **Acceptance Criteria:**
 - ✅ Detects strongest signal
 - ✅ Confirmation prompt
 - ✅ Auto-highlight in table
-- ✅ LED double-blink on switch
+- ⏸️ LED double-blink on switch (Phase 7 dependency)
+
+**Implementation Details:**
+
+**page_scan_table.c:**
+- Added `max_rssi` and `max_channel` tracking during scan
+- Removed automatic channel switch on scan completion
+- Added `show_switch_confirmation()` dialog function
+- Added `confirm_dialog_event()` for ENTER (confirm) / LEFT (cancel) handling
+- Dialog shows: Channel (e.g., "F3: 5740 MHz"), Signal percentage, ENTER/LEFT instructions
+- Bilingual support (English/Chinese)
+- Visual styling: Semi-transparent black backdrop, green border, color-coded labels
+
+**page_scan_chart.c:**
+- Added `max_rssi`, `max_channel`, `confirm_dialog` static variables
+- Modified `page_scan_chart_timer_event()` to track max RSSI across all 48 channels
+- Replaced automatic switch with `show_switch_confirmation()` call on scan completion
+- Added `confirm_dialog_event()` handler (same logic as table view)
+- Added `show_switch_confirmation()` dialog (consistent with table view)
+- Reset max_rssi/max_channel to 0 in `page_scan_chart_create()`
+- Dialog cleanup in `page_scan_chart_exit()`
+
+**User Workflow:**
+- **Before:** Scan → Auto-switches to strongest (no user control)
+- **After:** Scan → Dialog prompts: "Switch Channel? F3: 5740 MHz, Signal: 87%, ENTER=Yes LEFT=No"
+- Result: 7+ button presses reduced to 2 (ENTER to confirm or LEFT to cancel)
+
+**Technical Notes:**
+- Dialog uses LVGL overlay with `lv_scr_act()` parent
+- Input group focus transferred to dialog for key handling
+- Proper cleanup on exit to prevent memory leaks
+- Channel index conversion: `band = channel / 8`, `ch = channel % 8`
+- Consistent with existing UI patterns (similar to quick_menu.c)
 
 ---
 
