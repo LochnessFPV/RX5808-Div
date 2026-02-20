@@ -5,6 +5,10 @@
 #include "page_main.h"
 #include "page_menu.h"
 #include "page_spectrum.h"
+#include "page_scan.h"
+#include "page_setup.h"
+#include "page_diversity_calib.h"
+#include "page_bandx_channel_select.h"
 #include "rx5808.h"
 #include "rx5808_config.h"
 #include "lvgl_stl.h"
@@ -61,6 +65,11 @@ static bool blink_visible = true;           // Blink state
 static uint32_t last_click_time = 0;        // For double-click detection (ms)
 #define DOUBLE_CLICK_TIME_MS 500            // Maximum time between clicks for double-click
 
+// Quick menu support
+static quick_menu_t* quick_menu = NULL;
+static uint32_t right_press_start_time = 0;  // Track when RIGHT was pressed
+#define LONG_PRESS_MS 1000                    // Long-press threshold for quick menu
+
 
 static void page_main_exit(void);
 static void page_main_group_create(void);
@@ -69,11 +78,93 @@ static void fre_label_update_band_x(uint16_t freq);
 static void blink_timer_callback(lv_timer_t* timer);
 static void start_band_x_freq_edit(void);
 static void stop_band_x_freq_edit(void);
+static void quick_menu_action_handler(quick_action_t action);
+
+/**
+ * @brief Handle quick menu action selection
+ */
+static void quick_menu_action_handler(quick_action_t action) {
+    if (!page_main_active) return;
+    
+    switch (action) {
+        case QUICK_ACTION_SCAN:
+            // Start quick scan
+            page_main_exit();
+            lv_fun_delayed(page_scan_create, 500);
+            break;
+            
+        case QUICK_ACTION_SPECTRUM:
+            // Open spectrum analyzer
+            page_main_exit();
+            lv_fun_param_delayed(page_spectrum_create, 500, false, 0);
+            break;
+            
+        case QUICK_ACTION_CALIBRATION:
+            // Open calibration
+            page_main_exit();
+            lv_fun_delayed(page_diversity_calib_create, 500);
+            break;
+            
+        case QUICK_ACTION_BAND_X:
+            // Open Band X editor
+            page_main_exit();
+            lv_fun_delayed(page_bandx_channel_select_create, 500);
+            break;
+            
+        case QUICK_ACTION_SETTINGS:
+            // Open setup page
+            page_main_exit();
+            lv_fun_delayed(page_setup_create, 500);
+            break;
+            
+        case QUICK_ACTION_MAIN_MENU:
+            // Open main menu
+            page_main_exit();
+            lv_fun_param_delayed(page_menu_create, 500, 0);
+            break;
+            
+        default:
+            break;
+    }
+}
 
 static void event_callback(lv_event_t* event)
 {
     lv_event_code_t code = lv_event_get_code(event);
-    if (code == LV_EVENT_KEY) {
+    
+    // Quick menu intercept - if menu is active, handle keys there
+    if (quick_menu && quick_menu_is_active(quick_menu)) {
+        if (code == LV_EVENT_KEY) {
+            lv_key_t key = lv_indev_get_key(lv_indev_get_act());
+            if (quick_menu_handle_key(quick_menu, key)) {
+                return;  // Key handled by quick menu
+            }
+        }
+        return;  // Block other events when menu is active
+    }
+    
+    // Long-press detection for RIGHT button (quick menu)
+    if (code == LV_EVENT_PRESSED) {
+        lv_key_t key = lv_indev_get_key(lv_indev_get_act());
+        if (key == LV_KEY_RIGHT && lock_flag) {
+            right_press_start_time = xTaskGetTickCount() * portTICK_PERIOD_MS;
+        }
+    }
+    else if (code == LV_EVENT_RELEASED) {
+        lv_key_t key = lv_indev_get_key(lv_indev_get_act());
+        if (key == LV_KEY_RIGHT && lock_flag && right_press_start_time > 0) {
+            uint32_t press_duration = (xTaskGetTickCount() * portTICK_PERIOD_MS) - right_press_start_time;
+            right_press_start_time = 0;  // Reset
+            
+            if (press_duration >= LONG_PRESS_MS) {
+                // Long-press detected: open quick menu
+                beep_turn_on(50);
+                quick_menu_show(quick_menu, main_contain, quick_menu_action_handler);
+                return;  // Don't process as normal RIGHT press
+            }
+        }
+    }
+    else if (code == LV_EVENT_KEY) {
         if (lock_flag == true) {
             lv_key_t key_status = lv_indev_get_key(lv_indev_get_act());
             if ((key_status >= LV_KEY_UP && key_status <= LV_KEY_LEFT)) {
@@ -634,6 +725,12 @@ void page_main_create()
     
     // Initialize navigation module with lock state
     navigation_init(&lock_flag);
+    
+    // Initialize quick menu
+    quick_menu = quick_menu_init();
+    
+    // Initialize quick menu
+    quick_menu = quick_menu_init();
     
     main_contain = lv_obj_create(lv_scr_act());
     lv_obj_remove_style_all(main_contain);
