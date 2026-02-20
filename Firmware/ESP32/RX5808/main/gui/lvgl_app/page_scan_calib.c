@@ -6,6 +6,8 @@
 #include "rx5808_config.h"
 #include "lvgl_stl.h"
 #include "beep.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 
 LV_FONT_DECLARE(lv_font_chinese_12);
@@ -178,16 +180,34 @@ static void page_scan_calib_event(lv_event_t* event)
 }
 
 
+// Improved calibration with multi-sample averaging
+// Takes 3 samples per channel update for more stable readings
 static void page_scan_calib_update()
 {
-    if (adc_converted_value[0] > rssi_adc_max0)
-        rssi_adc_max0 = adc_converted_value[0];
-    if (adc_converted_value[0] < rssi_adc_min0)
-        rssi_adc_min0 = adc_converted_value[0];
-    if (adc_converted_value[1] > rssi_adc_max1)
-        rssi_adc_max1 = adc_converted_value[1];
-    if (adc_converted_value[1] < rssi_adc_min1)
-        rssi_adc_min1 = adc_converted_value[1];
+    // Multi-sample averaging for sustained signal detection (reduces noise spikes)
+    uint16_t avg0 = 0, avg1 = 0;
+    const int samples = 3;
+    
+    for (int i = 0; i < samples; i++) {
+        avg0 += adc_converted_value[0];
+        avg1 += adc_converted_value[1];
+        if (i < samples - 1) {
+            vTaskDelay(pdMS_TO_TICKS(10)); // Small delay between samples
+        }
+    }
+    avg0 /= samples;
+    avg1 /= samples;
+    
+    // Update min/max with averaged values (more robust than single samples)
+    if (avg0 > rssi_adc_max0)
+        rssi_adc_max0 = avg0;
+    if (avg0 < rssi_adc_min0)
+        rssi_adc_min0 = avg0;
+    if (avg1 > rssi_adc_max1)
+        rssi_adc_max1 = avg1;
+    if (avg1 < rssi_adc_min1)
+        rssi_adc_min1 = avg1;
+    
     lv_label_set_text_fmt(rssi_min_label, "%d\n%d", rssi_adc_min0, rssi_adc_min1);
     lv_label_set_text_fmt(rssi_max_label, "%d\n%d", rssi_adc_max0, rssi_adc_max1);
 }

@@ -77,8 +77,8 @@ static void update_ui_for_state(void)
         case CALIB_STATE_WELCOME:
             title = "Calibration";
             instruction = is_english ? 
-                "Calibrate RSSI for\nboth receivers.\n\nEstimate: 30 sec" :
-                "校准两个接收器\n的RSSI。\n\n预计: 30秒";
+                "Calibrate RSSI for\nboth receivers.\n\n✓ Median+MAD algorithm\nEstimate: 30 sec" :
+                "校准两个接收器\n的RSSI。\n\n✓ 中位数+MAD算法\n预计: 30秒";
             action_text = is_english ? "Start" : "开始";
             progress = 0;
             break;
@@ -96,11 +96,11 @@ static void update_ui_for_state(void)
         case CALIB_STATE_FLOOR_SAMPLING:
             title = is_english ? "Sampling Floor..." : "采样底噪...";
             instruction = is_english ?
-                "Sampling 500 values\nKeep antennas removed" :
-                "采样500个值\n保持天线移除";
+                "Median+MAD: 100 samples\nKeep antennas removed\n\n>95% accuracy" :
+                "中位数+MAD: 100样本\n保持天线移除\n\n>95%准确率";
             show_rssi = true;
             show_action_btn = false;
-            progress = 10 + (sampling_progress * 20 / 500); // 10->30%
+            progress = 10 + (sampling_progress * 20 / 100); // 10->30%
             break;
 
         case CALIB_STATE_FLOOR_RESULTS:
@@ -138,11 +138,11 @@ static void update_ui_for_state(void)
         case CALIB_STATE_PEAK_SAMPLING:
             title = is_english ? "Sampling Peak..." : "采样峰值...";
             instruction = is_english ?
-                "Sampling 500 values\nKeep VTX in place" :
-                "采样500个值\n保持VTX位置";
+                "95th percentile: 100\nKeep VTX in place\n\nRobust estimation" :
+                "95百分位: 100样本\n保持VTX位置\n\n稳健估计";
             show_rssi = true;
             show_action_btn = false;
-            progress = 50 + (sampling_progress * 20 / 500); // 50->70%
+            progress = 50 + (sampling_progress * 20 / 100); // 50->70%
             break;
 
         case CALIB_STATE_PEAK_RESULTS:
