@@ -9,15 +9,42 @@
 
 static const char *TAG = "LED";
 
+// Board LED is active-low on GPIO21: 0=ON, 1=OFF
+#define LED_ACTIVE_LOW 1
+
 // LED state
 static led_pattern_t current_pattern = LED_PATTERN_OFF;
 static led_pattern_t saved_pattern = LED_PATTERN_OFF;
 static uint8_t signal_strength_rssi = 0;
+static uint8_t led_brightness_percent = 100;
 static bool double_blink_triggered = false;
 static SemaphoreHandle_t led_mutex = NULL;
 
 // FreeRTOS task handle
 static TaskHandle_t led_task_handle = NULL;
+
+static inline void led_write(bool on)
+{
+#if LED_ACTIVE_LOW
+    gpio_set_level(LED0_PIN, on ? 0 : 1);
+#else
+    gpio_set_level(LED0_PIN, on ? 1 : 0);
+#endif
+}
+
+static void led_apply_brightness(uint8_t brightness, uint32_t tick)
+{
+    uint8_t scaled = (uint8_t)((brightness * led_brightness_percent) / 100);
+    if (scaled == 0) {
+        led_write(false);
+    } else if (scaled >= 100) {
+        led_write(true);
+    } else {
+        uint8_t period_ms = 20;
+        uint8_t on_time = (uint8_t)((scaled * period_ms) / 100);
+        led_write((tick % period_ms) < on_time);
+    }
+}
 
 /**
  * @brief Calculate LED brightness for breathing pattern
@@ -94,27 +121,30 @@ static void led_task(void *param)
         // Handle double blink (overrides other patterns)
         if (double_blink_count > 0) {
             led_state = !led_state;
-            gpio_set_level(LED0_PIN, led_state ? 1 : 0);
+            led_apply_brightness(led_state ? 100 : 0, tick);
             double_blink_count--;
             vTaskDelay(100 / portTICK_PERIOD_MS);
+            tick += 100;
             continue;
         }
         
         // Handle normal patterns
         switch (current_pattern) {
             case LED_PATTERN_OFF:
-                gpio_set_level(LED0_PIN, 0);
+                led_apply_brightness(0, tick);
                 vTaskDelay(100 / portTICK_PERIOD_MS);
+                tick += 100;
                 break;
                 
             case LED_PATTERN_SOLID:
-                gpio_set_level(LED0_PIN, 1);
+                led_apply_brightness(100, tick);
                 vTaskDelay(100 / portTICK_PERIOD_MS);
+                tick += 100;
                 break;
                 
             case LED_PATTERN_HEARTBEAT:
                 brightness = calculate_heartbeat_brightness(tick);
-                gpio_set_level(LED0_PIN, brightness > 50 ? 1 : 0);
+                led_apply_brightness(brightness, tick);
                 vTaskDelay(10 / portTICK_PERIOD_MS);
                 tick += 10;
                 break;
@@ -122,32 +152,21 @@ static void led_task(void *param)
             case LED_PATTERN_FAST_BLINK:
                 // 5 Hz = 200ms period = 100ms on, 100ms off
                 led_state = (tick % 200) < 100;
-                gpio_set_level(LED0_PIN, led_state ? 1 : 0);
+                led_apply_brightness(led_state ? 100 : 0, tick);
                 vTaskDelay(10 / portTICK_PERIOD_MS);
                 tick += 10;
                 break;
                 
             case LED_PATTERN_BREATHING:
                 brightness = calculate_breathing_brightness(tick);
-                // Simple on/off approximation (no PWM)
-                // LED is on for brightness% of each 20ms period
-                if (brightness > ((tick % 20) * 5)) {
-                    gpio_set_level(LED0_PIN, 1);
-                } else {
-                    gpio_set_level(LED0_PIN, 0);
-                }
+                led_apply_brightness(brightness, tick);
                 vTaskDelay(2 / portTICK_PERIOD_MS);
                 tick += 2;
                 break;
                 
             case LED_PATTERN_SIGNAL_STRENGTH:
                 // LED brightness proportional to signal strength
-                // Simple on/off approximation
-                if (signal_strength_rssi > ((tick % 20) * 5)) {
-                    gpio_set_level(LED0_PIN, 1);
-                } else {
-                    gpio_set_level(LED0_PIN, 0);
-                }
+                led_apply_brightness(signal_strength_rssi, tick);
                 vTaskDelay(2 / portTICK_PERIOD_MS);
                 tick += 2;
                 break;
@@ -158,8 +177,9 @@ static void led_task(void *param)
                 break;
                 
             default:
-                gpio_set_level(LED0_PIN, 0);
+                led_apply_brightness(0, tick);
                 vTaskDelay(100 / portTICK_PERIOD_MS);
+                tick += 100;
                 break;
         }
     }
@@ -180,7 +200,7 @@ void led_init(void)
     gpio_config(&io_conf);
     
     // Start with LED off
-    gpio_set_level(LED0_PIN, 0);
+    led_write(false);
     
     // Create mutex
     led_mutex = xSemaphoreCreateMutex();
@@ -245,6 +265,21 @@ void led_set_signal_strength(uint8_t rssi_percent)
         xSemaphoreGive(led_mutex);
     } else {
         signal_strength_rssi = rssi_percent;
+    }
+}
+
+void led_set_brightness(uint8_t brightness_percent)
+{
+    if (brightness_percent > 100) {
+        brightness_percent = 100;
+    }
+
+    if (led_mutex != NULL) {
+        xSemaphoreTake(led_mutex, portMAX_DELAY);
+        led_brightness_percent = brightness_percent;
+        xSemaphoreGive(led_mutex);
+    } else {
+        led_brightness_percent = brightness_percent;
     }
 }
 

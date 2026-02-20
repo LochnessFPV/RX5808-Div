@@ -15,6 +15,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "diversity.h"
+#include "led.h"
 #include "esp_log.h"
 #include "esp_pm.h"
 #include "esp_clk_tree.h"
@@ -152,7 +153,7 @@ void system_init(void)
 	// Apply CPU frequency from settings
 	system_apply_cpu_freq(RX5808_Get_CPU_Freq());
 	
- 	LED_Init();
+	led_init();
 	printf("led init success!\n"); 	
  	Beep_Init();
 	printf("beep init success!\n");

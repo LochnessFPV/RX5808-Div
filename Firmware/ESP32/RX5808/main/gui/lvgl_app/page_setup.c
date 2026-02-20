@@ -27,6 +27,7 @@ LV_FONT_DECLARE(lv_font_chinese_12);
 
 static lv_obj_t* menu_setup_contain = NULL;
 static lv_obj_t* back_light_label;
+static lv_obj_t* led_strength_label;
 static lv_obj_t* fan_speed_label;
 static lv_obj_t* boot_animation_label;
 static lv_obj_t* beep_label;
@@ -48,6 +49,7 @@ static lv_obj_t* vtx_band_swap_switch;    // ON/OFF switch for R↔L band swappi
 static lv_obj_t* restore_defaults_label;
 static lv_obj_t* exit_label;
 static lv_obj_t* back_light_bar;
+static lv_obj_t* led_strength_bar;
 static lv_obj_t* fan_speed_bar;
 static lv_obj_t* boot_animation_switch;
 static lv_obj_t* beep_switch;
@@ -82,6 +84,7 @@ static lv_style_t style_setup_item;
 static lv_style_t style_label;
 
 static uint8_t setup_back_light;
+static uint8_t setup_led_strength;
 static int8_t setup_fan_speed;
 static bool  boot_animation_state;
 static bool  beep_state;
@@ -152,6 +155,7 @@ static void setup_event_callback(lv_event_t* event)
                 rx5808_div_setup_upload(rx5808_div_config_start_animation);
                 rx5808_div_setup_upload(rx5808_div_config_beep);
                 rx5808_div_setup_upload(rx5808_div_config_backlight);
+                rx5808_div_setup_upload(rx5808_div_config_led_brightness);
                 rx5808_div_setup_upload(rx5808_div_config_fan_speed);
                 rx5808_div_setup_upload(rx5808_div_config_osd_format);
                 rx5808_div_setup_upload(rx5808_div_config_language_set);
@@ -209,8 +213,12 @@ static void setup_event_callback(lv_event_t* event)
             #endif
             else if (obj == restore_defaults_label)
             {
+                setup_led_strength = LED_BRIGHTNESS_DEFAULT;
                 cpu_freq_selid = 65532 + CPU_FREQ_DEFAULT;
                 gui_update_rate_selid = 65532 + GUI_UPDATE_RATE_DEFAULT;
+
+                lv_bar_set_value(led_strength_bar, setup_led_strength, LV_ANIM_OFF);
+                RX5808_Set_LED_Brightness(setup_led_strength);
 
                 lv_label_set_text_fmt(cpu_freq_setup_label, (const char*)(&cpu_freq_label_text[cpu_freq_selid % 4]));
                 RX5808_Set_CPU_Freq(cpu_freq_selid % 4);
@@ -228,6 +236,15 @@ static void setup_event_callback(lv_event_t* event)
                     setup_back_light = 10;
                 LCD_SET_BLK(setup_back_light);
                 lv_bar_set_value(back_light_bar, setup_back_light, LV_ANIM_OFF);
+            }
+            else if (obj == led_strength_label)
+            {
+                if (setup_led_strength >= 5)
+                    setup_led_strength -= 5;
+                else
+                    setup_led_strength = 0;
+                RX5808_Set_LED_Brightness(setup_led_strength);
+                lv_bar_set_value(led_strength_bar, setup_led_strength, LV_ANIM_OFF);
             }
             else if(obj == fan_speed_label)
             {
@@ -307,6 +324,14 @@ static void setup_event_callback(lv_event_t* event)
                     setup_back_light = 100;
                 LCD_SET_BLK(setup_back_light);
                 lv_bar_set_value(back_light_bar, setup_back_light, LV_ANIM_OFF);
+            }
+            else if (obj == led_strength_label)
+            {
+                setup_led_strength += 5;
+                if (setup_led_strength > 100)
+                    setup_led_strength = 100;
+                RX5808_Set_LED_Brightness(setup_led_strength);
+                lv_bar_set_value(led_strength_bar, setup_led_strength, LV_ANIM_OFF);
             }
              else if(obj == fan_speed_label)
             {
@@ -432,6 +457,7 @@ static void page_setup_set_language(uint16_t language)
     if (language == 0)
     {
         lv_obj_set_style_text_font(back_light_label, &lv_font_montserrat_12, LV_STATE_DEFAULT);
+        lv_obj_set_style_text_font(led_strength_label, &lv_font_montserrat_12, LV_STATE_DEFAULT);
         lv_obj_set_style_text_font(fan_speed_label, &lv_font_montserrat_12, LV_STATE_DEFAULT);
         lv_obj_set_style_text_font(boot_animation_label, &lv_font_montserrat_12, LV_STATE_DEFAULT);
         lv_obj_set_style_text_font(beep_label, &lv_font_montserrat_12, LV_STATE_DEFAULT);
@@ -448,6 +474,7 @@ static void page_setup_set_language(uint16_t language)
         lv_obj_set_style_text_font(restore_defaults_label, &lv_font_montserrat_12, LV_STATE_DEFAULT);
         lv_obj_set_style_text_font(exit_label, &lv_font_montserrat_12, LV_STATE_DEFAULT);
         lv_label_set_text_fmt(back_light_label, "BckLight");
+        lv_label_set_text_fmt(led_strength_label, "LED");
         lv_label_set_text_fmt(fan_speed_label, "Fan");
         lv_label_set_text_fmt(boot_animation_label, "Boot ANM");
         lv_label_set_text_fmt(beep_label, "Beep");
@@ -473,6 +500,7 @@ static void page_setup_set_language(uint16_t language)
     else
     {
         lv_obj_set_style_text_font(back_light_label, &lv_font_chinese_12, LV_STATE_DEFAULT);
+        lv_obj_set_style_text_font(led_strength_label, &lv_font_chinese_12, LV_STATE_DEFAULT);
         lv_obj_set_style_text_font(fan_speed_label, &lv_font_chinese_12, LV_STATE_DEFAULT);
         lv_obj_set_style_text_font(boot_animation_label, &lv_font_chinese_12, LV_STATE_DEFAULT);
         lv_obj_set_style_text_font(beep_label, &lv_font_chinese_12, LV_STATE_DEFAULT);
@@ -489,6 +517,7 @@ static void page_setup_set_language(uint16_t language)
         lv_obj_set_style_text_font(restore_defaults_label, &lv_font_chinese_12, LV_STATE_DEFAULT);
         lv_obj_set_style_text_font(exit_label, &lv_font_chinese_12, LV_STATE_DEFAULT);
         lv_label_set_text_fmt(back_light_label, "屏幕背光 ");
+        lv_label_set_text_fmt(led_strength_label, "LED亮度 ");
         lv_label_set_text_fmt(fan_speed_label, "风扇转速 ");
         lv_label_set_text_fmt(boot_animation_label, "开机动画 ");
         lv_label_set_text_fmt(beep_label, "蜂鸣器 ");
@@ -551,11 +580,27 @@ void page_setup_create()
     lv_bar_set_value(back_light_bar, setup_back_light, LV_ANIM_ON);
     lv_obj_set_style_anim_time(back_light_bar, 200, LV_STATE_DEFAULT);
 
+    led_strength_label = lv_label_create(menu_setup_contain);
+    lv_obj_add_style(led_strength_label, &style_label, LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(led_strength_label, LABEL_FOCUSE_COLOR, LV_STATE_FOCUSED);
+    lv_obj_set_pos(led_strength_label, 0, 21);
+    lv_obj_set_size(led_strength_label, 75, 20);
+    lv_label_set_long_mode(led_strength_label, LV_LABEL_LONG_WRAP);
+
+    led_strength_bar = lv_bar_create(menu_setup_contain);
+    lv_obj_remove_style(led_strength_bar, NULL, LV_PART_KNOB);
+    lv_obj_set_size(led_strength_bar, 50, 14);
+    lv_obj_set_style_bg_color(led_strength_bar, BAR_COLOR, LV_PART_INDICATOR);
+    lv_obj_set_pos(led_strength_bar, 110, 24);
+    setup_led_strength = RX5808_Get_LED_Brightness();
+    lv_bar_set_value(led_strength_bar, setup_led_strength, LV_ANIM_ON);
+    lv_obj_set_style_anim_time(led_strength_bar, 200, LV_STATE_DEFAULT);
+
     fan_speed_label = lv_label_create(menu_setup_contain);
     lv_obj_add_style(fan_speed_label, &style_label, LV_STATE_DEFAULT);
     lv_obj_set_style_bg_color(fan_speed_label, LABEL_FOCUSE_COLOR, LV_STATE_FOCUSED);
     //lv_label_set_text_fmt(fan_speed_label, "BackLight");
-    lv_obj_set_pos(fan_speed_label, 0, 21);
+    lv_obj_set_pos(fan_speed_label, 0, 40);
     lv_obj_set_size(fan_speed_label, 75, 20);
     lv_label_set_long_mode(fan_speed_label, LV_LABEL_LONG_WRAP);
 
@@ -563,7 +608,7 @@ void page_setup_create()
     lv_obj_remove_style(fan_speed_bar, NULL, LV_PART_KNOB);
     lv_obj_set_size(fan_speed_bar, 50, 14);
     lv_obj_set_style_bg_color(fan_speed_bar, BAR_COLOR, LV_PART_INDICATOR);
-    lv_obj_set_pos(fan_speed_bar, 110, 24);
+    lv_obj_set_pos(fan_speed_bar, 110, 43);
     setup_fan_speed = fan_get_speed();
     lv_bar_set_value(fan_speed_bar, setup_fan_speed, LV_ANIM_ON);
     lv_obj_set_style_anim_time(fan_speed_bar, 200, LV_STATE_DEFAULT);
@@ -573,13 +618,13 @@ void page_setup_create()
     lv_obj_set_style_bg_color(boot_animation_label, LABEL_FOCUSE_COLOR, LV_STATE_FOCUSED);
     //lv_label_set_text_fmt(boot_animation_label, "Boot Logo");
     lv_obj_set_size(boot_animation_label, 75, 20);
-    lv_obj_set_pos(boot_animation_label, 0, 40);
+    lv_obj_set_pos(boot_animation_label, 0, 59);
     lv_label_set_long_mode(boot_animation_label, LV_LABEL_LONG_WRAP);
 
     boot_animation_switch = lv_switch_create(menu_setup_contain);
     lv_obj_set_style_border_opa(boot_animation_switch, 0, LV_STATE_DEFAULT);
     lv_obj_set_size(boot_animation_switch, 50, 14);
-    lv_obj_set_pos(boot_animation_switch, 110, 43);
+    lv_obj_set_pos(boot_animation_switch, 110, 62);
     lv_obj_set_style_bg_color(boot_animation_switch, SWITCH_COLOR, LV_PART_INDICATOR | LV_STATE_CHECKED);
     boot_animation_state = page_get_animation_en();
     if (boot_animation_state == true)
@@ -591,14 +636,14 @@ void page_setup_create()
     lv_obj_add_style(beep_label, &style_label, LV_STATE_DEFAULT);
     lv_obj_set_style_bg_color(beep_label, LABEL_FOCUSE_COLOR, LV_STATE_FOCUSED);
     //lv_label_set_text_fmt(beep_label, "Beep");
-    lv_obj_set_pos(beep_label, 0, 59);
+    lv_obj_set_pos(beep_label, 0, 78);
     lv_obj_set_size(beep_label, 75, 20);
     lv_label_set_long_mode(beep_label, LV_LABEL_LONG_WRAP);
 
     beep_switch = lv_switch_create(menu_setup_contain);
     lv_obj_set_style_border_opa(beep_switch, 0, LV_STATE_DEFAULT);
     lv_obj_set_size(beep_switch, 50, 14);
-    lv_obj_set_pos(beep_switch, 110, 62);
+    lv_obj_set_pos(beep_switch, 110, 81);
     lv_obj_set_style_bg_color(beep_switch, SWITCH_COLOR, LV_PART_INDICATOR | LV_STATE_CHECKED);
     beep_state = beep_get_status();
     if (beep_state == true)
@@ -612,7 +657,7 @@ void page_setup_create()
     elrs_bind_button_label = lv_label_create(menu_setup_contain);
     lv_obj_add_style(elrs_bind_button_label, &style_label, LV_STATE_DEFAULT);
     lv_obj_set_style_bg_color(elrs_bind_button_label, LABEL_FOCUSE_COLOR, LV_STATE_FOCUSED);
-    lv_obj_set_pos(elrs_bind_button_label, 0, 78);
+    lv_obj_set_pos(elrs_bind_button_label, 0, 97);
     lv_obj_set_size(elrs_bind_button_label, 75, 20);
     lv_label_set_long_mode(elrs_bind_button_label, LV_LABEL_LONG_WRAP);
 
@@ -620,7 +665,7 @@ void page_setup_create()
     elrs_bind_button = lv_label_create(menu_setup_contain);
     lv_obj_add_style(elrs_bind_button, &style_setup_item, LV_STATE_DEFAULT);
     lv_obj_set_style_bg_color(elrs_bind_button, LABEL_FOCUSE_COLOR, LV_STATE_FOCUSED);
-    lv_obj_set_pos(elrs_bind_button, 75, 78);
+    lv_obj_set_pos(elrs_bind_button, 75, 97);
     lv_obj_set_size(elrs_bind_button, 35, 18);
     lv_label_set_text(elrs_bind_button, "BIND");  // Initial label
     lv_label_set_long_mode(elrs_bind_button, LV_LABEL_LONG_CLIP);
@@ -628,7 +673,7 @@ void page_setup_create()
     // Status value label (shows Bound/Unbound/countdown)
     elrs_status_value = lv_label_create(menu_setup_contain);
     lv_obj_add_style(elrs_status_value, &style_setup_item, LV_STATE_DEFAULT);
-    lv_obj_set_pos(elrs_status_value, 110, 78);
+    lv_obj_set_pos(elrs_status_value, 110, 97);
     lv_obj_set_size(elrs_status_value, 50, 18);
     lv_label_set_text(elrs_status_value, "---");  // Initial status
     lv_label_set_long_mode(elrs_status_value, LV_LABEL_LONG_CLIP);
@@ -649,13 +694,13 @@ void page_setup_create()
     lv_obj_add_style(vtx_band_swap_label, &style_label, LV_STATE_DEFAULT);
     lv_obj_set_style_bg_color(vtx_band_swap_label, LABEL_FOCUSE_COLOR, LV_STATE_FOCUSED);
     lv_label_set_text(vtx_band_swap_label, "Swap R/L");
-    lv_obj_set_pos(vtx_band_swap_label, 0, 97);
+    lv_obj_set_pos(vtx_band_swap_label, 0, 116);
     lv_obj_set_size(vtx_band_swap_label, 75, 20);
     lv_label_set_long_mode(vtx_band_swap_label, LV_LABEL_LONG_WRAP);
 
     vtx_band_swap_switch = lv_switch_create(menu_setup_contain);
     lv_obj_set_size(vtx_band_swap_switch, 50, 14);
-    lv_obj_set_pos(vtx_band_swap_switch, 110, 100);
+    lv_obj_set_pos(vtx_band_swap_switch, 110, 119);
     lv_obj_set_style_bg_color(vtx_band_swap_switch, SWITCH_COLOR, LV_PART_INDICATOR | LV_STATE_CHECKED);
     if (ELRS_Backpack_Get_VTX_Band_Swap()) {
         lv_obj_add_state(vtx_band_swap_switch, LV_STATE_CHECKED);
@@ -667,14 +712,14 @@ void page_setup_create()
     osd_format_label = lv_label_create(menu_setup_contain);
     lv_obj_add_style(osd_format_label, &style_label, LV_STATE_DEFAULT);
     lv_obj_set_style_bg_color(osd_format_label, LABEL_FOCUSE_COLOR, LV_STATE_FOCUSED);   
-    lv_obj_set_pos(osd_format_label, 0, 116);
+    lv_obj_set_pos(osd_format_label, 0, 135);
     lv_obj_set_size(osd_format_label, 75, 20);
     lv_label_set_long_mode(osd_format_label, LV_LABEL_LONG_WRAP);
 
     osd_format_setup_label = lv_label_create(menu_setup_contain);
     lv_obj_add_style(osd_format_setup_label, &style_setup_item, LV_STATE_DEFAULT);
     lv_obj_set_style_bg_color(osd_format_setup_label, LABEL_FOCUSE_COLOR, LV_STATE_FOCUSED);
-    lv_obj_set_pos(osd_format_setup_label, 110, 116);
+    lv_obj_set_pos(osd_format_setup_label, 110, 135);
     lv_obj_set_size(osd_format_setup_label, 50, 18);
     lv_label_set_long_mode(osd_format_setup_label, LV_LABEL_LONG_WRAP);
 
@@ -682,7 +727,7 @@ void page_setup_create()
     lv_obj_add_style(language_label, &style_label, LV_STATE_DEFAULT);
     lv_obj_set_style_bg_color(language_label, LABEL_FOCUSE_COLOR, LV_STATE_FOCUSED);
     //lv_label_set_text_fmt(language_label, "Language");
-    lv_obj_set_pos(language_label, 0, 135);
+    lv_obj_set_pos(language_label, 0, 154);
     lv_obj_set_size(language_label, 75, 20);
     lv_label_set_long_mode(language_label, LV_LABEL_LONG_WRAP);
 
@@ -691,7 +736,7 @@ void page_setup_create()
     lv_obj_add_style(language_setup_label, &style_setup_item, LV_STATE_DEFAULT);
     lv_obj_set_style_bg_color(language_setup_label, LABEL_FOCUSE_COLOR, LV_STATE_FOCUSED);
     //lv_label_set_text_fmt(language_setup_label, (const char*)(&language_label_text[language_selid % 2]));
-    lv_obj_set_pos(language_setup_label, 110, 135);
+    lv_obj_set_pos(language_setup_label, 110, 154);
     lv_obj_set_size(language_setup_label, 50, 18);
     lv_label_set_long_mode(language_setup_label, LV_LABEL_LONG_WRAP);
 
@@ -699,7 +744,7 @@ void page_setup_create()
     lv_obj_add_style(signal_source_label, &style_label, LV_STATE_DEFAULT);
     lv_obj_set_style_bg_color(signal_source_label, LABEL_FOCUSE_COLOR, LV_STATE_FOCUSED);
     //lv_label_set_text_fmt(signal_source_label, "Signal");
-    lv_obj_set_pos(signal_source_label, 0, 154);
+    lv_obj_set_pos(signal_source_label, 0, 173);
     lv_obj_set_size(signal_source_label, 75, 20);
     lv_label_set_long_mode(signal_source_label, LV_LABEL_LONG_WRAP);
 
@@ -707,7 +752,7 @@ void page_setup_create()
     lv_obj_add_style(signal_source_setup_label, &style_setup_item, LV_STATE_DEFAULT);
     lv_obj_set_style_bg_color(signal_source_setup_label, LABEL_FOCUSE_COLOR, LV_STATE_FOCUSED);
     //lv_label_set_text_fmt(signal_source_setup_label, (const char*)(&signal_source_label_text[signal_source_selid % 4]));
-    lv_obj_set_pos(signal_source_setup_label, 110, 154);
+    lv_obj_set_pos(signal_source_setup_label, 110, 173);
     lv_obj_set_size(signal_source_setup_label, 50, 18);
     lv_label_set_long_mode(signal_source_setup_label, LV_LABEL_LONG_WRAP);
 
@@ -715,14 +760,14 @@ void page_setup_create()
     diversity_mode_label = lv_label_create(menu_setup_contain);
     lv_obj_add_style(diversity_mode_label, &style_label, LV_STATE_DEFAULT);
     lv_obj_set_style_bg_color(diversity_mode_label, LABEL_FOCUSE_COLOR, LV_STATE_FOCUSED);
-    lv_obj_set_pos(diversity_mode_label, 0, 173);
+    lv_obj_set_pos(diversity_mode_label, 0, 192);
     lv_obj_set_size(diversity_mode_label, 75, 20);
     lv_label_set_long_mode(diversity_mode_label, LV_LABEL_LONG_WRAP);
 
     diversity_mode_setup_label = lv_label_create(menu_setup_contain);
     lv_obj_add_style(diversity_mode_setup_label, &style_setup_item, LV_STATE_DEFAULT);
     lv_obj_set_style_bg_color(diversity_mode_setup_label, LABEL_FOCUSE_COLOR, LV_STATE_FOCUSED);
-    lv_obj_set_pos(diversity_mode_setup_label, 110, 154);
+    lv_obj_set_pos(diversity_mode_setup_label, 110, 192);
     lv_obj_set_size(diversity_mode_setup_label, 50, 18);
     lv_label_set_long_mode(diversity_mode_setup_label, LV_LABEL_LONG_WRAP);
     // Initialize to current diversity mode
@@ -734,14 +779,14 @@ void page_setup_create()
     cpu_freq_label = lv_label_create(menu_setup_contain);
     lv_obj_add_style(cpu_freq_label, &style_label, LV_STATE_DEFAULT);
     lv_obj_set_style_bg_color(cpu_freq_label, LABEL_FOCUSE_COLOR, LV_STATE_FOCUSED);
-    lv_obj_set_pos(cpu_freq_label, 0, 173);
+    lv_obj_set_pos(cpu_freq_label, 0, 211);
     lv_obj_set_size(cpu_freq_label, 75, 20);
     lv_label_set_long_mode(cpu_freq_label, LV_LABEL_LONG_WRAP);
 
     cpu_freq_setup_label = lv_label_create(menu_setup_contain);
     lv_obj_add_style(cpu_freq_setup_label, &style_setup_item, LV_STATE_DEFAULT);
     lv_obj_set_style_bg_color(cpu_freq_setup_label, LABEL_FOCUSE_COLOR, LV_STATE_FOCUSED);
-    lv_obj_set_pos(cpu_freq_setup_label, 110, 173);
+    lv_obj_set_pos(cpu_freq_setup_label, 110, 211);
     lv_obj_set_size(cpu_freq_setup_label, 50, 18);
     lv_label_set_long_mode(cpu_freq_setup_label, LV_LABEL_LONG_WRAP);
     lv_label_set_text_fmt(cpu_freq_setup_label, (const char*)(&cpu_freq_label_text[cpu_freq_selid % 4]));
@@ -750,28 +795,28 @@ void page_setup_create()
     gui_update_rate_label = lv_label_create(menu_setup_contain);
     lv_obj_add_style(gui_update_rate_label, &style_label, LV_STATE_DEFAULT);
     lv_obj_set_style_bg_color(gui_update_rate_label, LABEL_FOCUSE_COLOR, LV_STATE_FOCUSED);
-    lv_obj_set_pos(gui_update_rate_label, 0, 192);
+    lv_obj_set_pos(gui_update_rate_label, 0, 230);
     lv_obj_set_size(gui_update_rate_label, 75, 20);
     lv_label_set_long_mode(gui_update_rate_label, LV_LABEL_LONG_WRAP);
 
     gui_update_rate_setup_label = lv_label_create(menu_setup_contain);
     lv_obj_add_style(gui_update_rate_setup_label, &style_setup_item, LV_STATE_DEFAULT);
     lv_obj_set_style_bg_color(gui_update_rate_setup_label, LABEL_FOCUSE_COLOR, LV_STATE_FOCUSED);
-    lv_obj_set_pos(gui_update_rate_setup_label, 110, 192);
+    lv_obj_set_pos(gui_update_rate_setup_label, 110, 230);
     lv_obj_set_size(gui_update_rate_setup_label, 50, 18);
     lv_label_set_long_mode(gui_update_rate_setup_label, LV_LABEL_LONG_WRAP);
     lv_label_set_text_fmt(gui_update_rate_setup_label, (const char*)(&gui_update_rate_label_text[gui_update_rate_selid % 6]));
     restore_defaults_label = lv_label_create(menu_setup_contain);
     lv_obj_add_style(restore_defaults_label, &style_label, LV_STATE_DEFAULT);
     lv_obj_set_style_bg_color(restore_defaults_label, LABEL_FOCUSE_COLOR, LV_STATE_FOCUSED);
-    lv_obj_set_pos(restore_defaults_label, 0, 211);
+    lv_obj_set_pos(restore_defaults_label, 0, 249);
     lv_obj_set_size(restore_defaults_label, 75, 20);
     lv_label_set_long_mode(restore_defaults_label, LV_LABEL_LONG_WRAP);
         exit_label = lv_label_create(menu_setup_contain);
     lv_obj_add_style(exit_label, &style_label, LV_STATE_DEFAULT);
     lv_obj_set_style_bg_color(exit_label, LABEL_FOCUSE_COLOR, LV_STATE_FOCUSED);
     //lv_label_set_text_fmt(exit_label, "SAVE&EXIT");
-    lv_obj_set_pos(exit_label, 0, 230);
+    lv_obj_set_pos(exit_label, 0, 268);
     lv_obj_set_size(exit_label, 75, 20);
     lv_label_set_long_mode(exit_label, LV_LABEL_LONG_WRAP);
 
@@ -781,6 +826,7 @@ void page_setup_create()
     lv_indev_set_group(indev_keypad, setup_group);
     lv_obj_add_event_cb(boot_animation_label, setup_event_callback, LV_EVENT_KEY, NULL);
     lv_obj_add_event_cb(back_light_label, setup_event_callback, LV_EVENT_KEY, NULL);
+    lv_obj_add_event_cb(led_strength_label, setup_event_callback, LV_EVENT_KEY, NULL);
     lv_obj_add_event_cb(fan_speed_label, setup_event_callback, LV_EVENT_KEY, NULL);
     lv_obj_add_event_cb(beep_label, setup_event_callback, LV_EVENT_KEY, NULL);
     #ifdef ELRS_BACKPACK_ENABLE
@@ -798,6 +844,7 @@ void page_setup_create()
     lv_obj_add_event_cb(exit_label, setup_event_callback, LV_EVENT_KEY, NULL);
 
     lv_group_add_obj(setup_group, back_light_label);
+    lv_group_add_obj(setup_group, led_strength_label);
     lv_group_add_obj(setup_group, fan_speed_label);
     lv_group_add_obj(setup_group, boot_animation_label);
     lv_group_add_obj(setup_group, beep_label);
@@ -822,34 +869,36 @@ void page_setup_create()
 
 
     lv_amin_start(back_light_label, -100, 0, 1, 150, 0, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
-    lv_amin_start(fan_speed_label, -100, 0, 1, 150, 50, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
-    lv_amin_start(boot_animation_label, -100, 0, 1, 150, 100, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
-    lv_amin_start(beep_label, -100, 0, 1, 150, 150, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
+    lv_amin_start(led_strength_label, -100, 0, 1, 150, 50, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
+    lv_amin_start(fan_speed_label, -100, 0, 1, 150, 100, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
+    lv_amin_start(boot_animation_label, -100, 0, 1, 150, 150, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
+    lv_amin_start(beep_label, -100, 0, 1, 150, 200, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
     #ifdef ELRS_BACKPACK_ENABLE
     lv_amin_start(elrs_bind_button_label, -100, 0, 1, 150, 200, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
     lv_amin_start(vtx_band_swap_label, -100, 0, 1, 150, 250, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
     #endif
-    lv_amin_start(osd_format_label, -100, 0, 1, 150, 250, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
-    lv_amin_start(language_label, -100, 0, 1, 150, 300, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
-    lv_amin_start(signal_source_label, -100, 0, 1, 150, 350, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
-    lv_amin_start(diversity_mode_label, -100, 0, 1, 150, 400, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
-    lv_amin_start(cpu_freq_label, -100, 0, 1, 150, 450, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
-    lv_amin_start(gui_update_rate_label, -100, 0, 1, 150, 500, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
-    lv_amin_start(restore_defaults_label, -100, 0, 1, 150, 550, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
-    lv_amin_start(exit_label, -100, 0, 1, 150, 600, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
+    lv_amin_start(osd_format_label, -100, 0, 1, 150, 300, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
+    lv_amin_start(language_label, -100, 0, 1, 150, 350, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
+    lv_amin_start(signal_source_label, -100, 0, 1, 150, 400, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
+    lv_amin_start(diversity_mode_label, -100, 0, 1, 150, 450, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
+    lv_amin_start(cpu_freq_label, -100, 0, 1, 150, 500, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
+    lv_amin_start(gui_update_rate_label, -100, 0, 1, 150, 550, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
+    lv_amin_start(restore_defaults_label, -100, 0, 1, 150, 600, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
+    lv_amin_start(exit_label, -100, 0, 1, 150, 650, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
 
     lv_amin_start(back_light_bar, 160, 110, 1, 150, 0, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
-    lv_amin_start(fan_speed_bar, 160, 110, 1, 150, 50, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
+    lv_amin_start(led_strength_bar, 160, 110, 1, 150, 50, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
+    lv_amin_start(fan_speed_bar, 160, 110, 1, 150, 100, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
     #ifdef ELRS_BACKPACK_ENABLE
     lv_amin_start(elrs_bind_button, 160, 75, 1, 150, 200, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
     lv_amin_start(elrs_status_value, 160, 110, 1, 150, 200, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
     #endif
-    lv_amin_start(beep_switch, 160, 110, 1, 150, 150, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
-    lv_amin_start(osd_format_setup_label, 160, 110, 1, 150, 250, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
-    lv_amin_start(language_setup_label, 160, 110, 1, 150, 300, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
-    lv_amin_start(signal_source_setup_label, 160, 110, 1, 150, 350, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
-    lv_amin_start(diversity_mode_setup_label, 160, 110, 1, 150, 400, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
-    lv_amin_start(cpu_freq_setup_label, 160, 110, 1, 150, 450, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
+    lv_amin_start(beep_switch, 160, 110, 1, 150, 200, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
+    lv_amin_start(osd_format_setup_label, 160, 110, 1, 150, 300, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
+    lv_amin_start(language_setup_label, 160, 110, 1, 150, 350, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
+    lv_amin_start(signal_source_setup_label, 160, 110, 1, 150, 400, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
+    lv_amin_start(diversity_mode_setup_label, 160, 110, 1, 150, 450, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
+    lv_amin_start(cpu_freq_setup_label, 160, 110, 1, 150, 500, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
     #ifdef ELRS_BACKPACK_ENABLE
     // Create timer for ELRS status updates (500ms interval)
     elrs_status_timer = lv_timer_create(elrs_status_update, 500, NULL);
@@ -861,33 +910,35 @@ void page_setup_create()
 static void page_setup_exit()
 {
     lv_amin_start(back_light_label, lv_obj_get_x(back_light_label), -100, 1, 200, 0, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
-    lv_amin_start(fan_speed_label, lv_obj_get_x(fan_speed_label), -100, 1, 200, 50, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
-    lv_amin_start(boot_animation_label, lv_obj_get_x(boot_animation_label), -100, 1, 200, 100, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
-    lv_amin_start(beep_label, lv_obj_get_x(beep_label), -100, 1, 200, 150, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
+    lv_amin_start(led_strength_label, lv_obj_get_x(led_strength_label), -100, 1, 200, 50, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
+    lv_amin_start(fan_speed_label, lv_obj_get_x(fan_speed_label), -100, 1, 200, 100, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
+    lv_amin_start(boot_animation_label, lv_obj_get_x(boot_animation_label), -100, 1, 200, 150, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
+    lv_amin_start(beep_label, lv_obj_get_x(beep_label), -100, 1, 200, 200, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
     #ifdef ELRS_BACKPACK_ENABLE
     lv_amin_start(elrs_bind_button_label, lv_obj_get_x(elrs_bind_button_label), -100, 1, 200, 200, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
     lv_amin_start(vtx_band_swap_label, lv_obj_get_x(vtx_band_swap_label), -100, 1, 200, 250, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
     #endif
-    lv_amin_start(osd_format_label, lv_obj_get_x(osd_format_label), -100, 1, 200, 250, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
-    lv_amin_start(language_label, lv_obj_get_x(language_label), -100, 1, 200, 300, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
-    lv_amin_start(signal_source_label, lv_obj_get_x(signal_source_label), -100, 1, 200, 350, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
-    lv_amin_start(diversity_mode_label, lv_obj_get_x(diversity_mode_label), -100, 1, 200, 400, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
-    lv_amin_start(cpu_freq_label, lv_obj_get_x(cpu_freq_label), -100, 1, 200, 450, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
-    lv_amin_start(restore_defaults_label, lv_obj_get_x(restore_defaults_label), -100, 1, 200, 500, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
-    lv_amin_start(exit_label, lv_obj_get_x(exit_label), -100, 1, 200, 550, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
+    lv_amin_start(osd_format_label, lv_obj_get_x(osd_format_label), -100, 1, 200, 300, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
+    lv_amin_start(language_label, lv_obj_get_x(language_label), -100, 1, 200, 350, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
+    lv_amin_start(signal_source_label, lv_obj_get_x(signal_source_label), -100, 1, 200, 400, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
+    lv_amin_start(diversity_mode_label, lv_obj_get_x(diversity_mode_label), -100, 1, 200, 450, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
+    lv_amin_start(cpu_freq_label, lv_obj_get_x(cpu_freq_label), -100, 1, 200, 500, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
+    lv_amin_start(restore_defaults_label, lv_obj_get_x(restore_defaults_label), -100, 1, 200, 550, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
+    lv_amin_start(exit_label, lv_obj_get_x(exit_label), -100, 1, 200, 600, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
 
     lv_amin_start(back_light_bar, lv_obj_get_x(back_light_bar), 160, 1, 200, 0, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
-    lv_amin_start(fan_speed_bar, lv_obj_get_x(fan_speed_bar), 160, 1, 200, 50, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
-    lv_amin_start(boot_animation_switch, lv_obj_get_x(boot_animation_switch), 160, 1, 200, 100, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
-    lv_amin_start(beep_switch, lv_obj_get_x(beep_switch), 160, 1, 200, 150, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
+    lv_amin_start(led_strength_bar, lv_obj_get_x(led_strength_bar), 160, 1, 200, 50, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
+    lv_amin_start(fan_speed_bar, lv_obj_get_x(fan_speed_bar), 160, 1, 200, 100, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
+    lv_amin_start(boot_animation_switch, lv_obj_get_x(boot_animation_switch), 160, 1, 200, 150, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
+    lv_amin_start(beep_switch, lv_obj_get_x(beep_switch), 160, 1, 200, 200, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
     #ifdef ELRS_BACKPACK_ENABLE
     lv_amin_start(elrs_bind_button, lv_obj_get_x(elrs_bind_button), 160, 1, 200, 200, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
     lv_amin_start(elrs_status_value, lv_obj_get_x(elrs_status_value), 160, 1, 200, 200, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
     #endif
-    lv_amin_start(osd_format_setup_label, lv_obj_get_x(osd_format_setup_label), 160, 1, 200, 250, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
-    lv_amin_start(language_setup_label, lv_obj_get_x(language_setup_label), 160, 1, 200, 300, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
-    lv_amin_start(signal_source_setup_label, lv_obj_get_x(signal_source_setup_label), 160, 1, 200, 350, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
-    lv_amin_start(diversity_mode_setup_label, lv_obj_get_x(diversity_mode_setup_label), 160, 1, 200, 400, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
+    lv_amin_start(osd_format_setup_label, lv_obj_get_x(osd_format_setup_label), 160, 1, 200, 300, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
+    lv_amin_start(language_setup_label, lv_obj_get_x(language_setup_label), 160, 1, 200, 350, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
+    lv_amin_start(signal_source_setup_label, lv_obj_get_x(signal_source_setup_label), 160, 1, 200, 400, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
+    lv_amin_start(diversity_mode_setup_label, lv_obj_get_x(diversity_mode_setup_label), 160, 1, 200, 450, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
     lv_amin_start(cpu_freq_setup_label, lv_obj_get_x(cpu_freq_setup_label), 160, 1, 200, 450, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
 
     #ifdef ELRS_BACKPACK_ENABLE

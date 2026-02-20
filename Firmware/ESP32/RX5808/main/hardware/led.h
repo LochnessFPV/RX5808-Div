@@ -55,6 +55,13 @@ led_pattern_t led_get_pattern(void);
 void led_set_signal_strength(uint8_t rssi_percent);
 
 /**
+ * @brief Set global LED brightness scaling
+ *
+ * @param brightness_percent Brightness scale (0-100)
+ */
+void led_set_brightness(uint8_t brightness_percent);
+
+/**
  * @brief Trigger double-blink confirmation
  * 
  * Used after channel switch or significant events.

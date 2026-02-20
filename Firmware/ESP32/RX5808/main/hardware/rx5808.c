@@ -10,6 +10,7 @@
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include "hwvers.h"
+#include "led.h"
 #include "nvs_flash.h"
 #include "nvs_flash.h"
 #include "nvs.h"
@@ -92,6 +93,7 @@ volatile uint16_t Rx5808_RSSI_Ad_Max1=4095;
 volatile uint16_t Rx5808_OSD_Format=0;
 volatile uint16_t Rx5808_Language=1;
 volatile uint16_t Rx5808_Signal_Source=0;
+volatile uint16_t Rx5808_LED_Brightness=100;
 // ELRS Backpack: No longer a simple toggle - binding managed through page_setup.c UI
 volatile uint16_t Rx5808_CPU_Freq=3;  // AUTO by default (0=80MHz, 1=160MHz, 2=240MHz, 3=AUTO)
 volatile uint16_t Rx5808_GUI_Update_Rate=1;  // 70ms (14Hz) by default (0=100ms/10Hz, 1=70ms/14Hz, 2=50ms/20Hz, 3=40ms/25Hz, 4=20ms/50Hz, 5=10ms/100Hz)
@@ -416,6 +418,13 @@ void RX5808_Set_Signal_Source(uint16_t value)
     Rx5808_Signal_Source = value;
 }
 
+void RX5808_Set_LED_Brightness(uint16_t value)
+{
+	if (value > 100) value = 100;
+	Rx5808_LED_Brightness = value;
+	led_set_brightness((uint8_t)value);
+}
+
 // ELRS Backpack functions removed - binding now managed through ELRS_Backpack API in page_setup.c
 
 void RX5808_Set_CPU_Freq(uint16_t value)
@@ -470,6 +479,11 @@ uint16_t RX5808_Get_Language()
 uint16_t RX5808_Get_Signal_Source()
 {
     return Rx5808_Signal_Source;
+}
+
+uint16_t RX5808_Get_LED_Brightness()
+{
+	return Rx5808_LED_Brightness;
 }
 
 // ELRS Backpack functions removed - binding now managed through ELRS_Backpack API in page_setup.c

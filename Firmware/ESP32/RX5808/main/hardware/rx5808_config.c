@@ -45,6 +45,7 @@ void rx5808_div_setup_load()
 	   rx5808_div_setup[rx5808_div_config_start_animation]=START_ANIMATION_DEFAULT;
 		rx5808_div_setup[rx5808_div_config_beep]=BEEP_DEFAULT;
 		rx5808_div_setup[rx5808_div_config_backlight]=BACKLIGHT_DEFAULT;
+		rx5808_div_setup[rx5808_div_config_led_brightness]=LED_BRIGHTNESS_DEFAULT;
 		rx5808_div_setup[rx5808_div_config_fan_speed]=FAN_SPEED_DEFAULT;
 		rx5808_div_setup[rx5808_div_config_channel]=CHANNEL_DEFAULT;
 		rx5808_div_setup[rx5808_div_config_rssi_adc_value_min0]=RSSI0_MIN_DEFAULT;
@@ -77,6 +78,7 @@ void rx5808_div_setup_load()
 		RX5808_Set_OSD_Format(rx5808_div_setup[rx5808_div_config_osd_format]);
 		RX5808_Set_Language(rx5808_div_setup[rx5808_div_config_language_set]);
 		RX5808_Set_Signal_Source(rx5808_div_setup[rx5808_div_config_signal_source]);
+		RX5808_Set_LED_Brightness(rx5808_div_setup[rx5808_div_config_led_brightness]);
 		// ELRS backpack removed - initialized separately in system.c
 		RX5808_Set_CPU_Freq(rx5808_div_setup[rx5808_div_config_cpu_freq]);
 		RX5808_Set_GUI_Update_Rate(rx5808_div_setup[rx5808_div_config_gui_update_rate]);
@@ -121,6 +123,7 @@ uint16_t (*set_fun_arr[rx5808_div_config_setup_count-1])()={
 	RX5808_Get_OSD_Format,\
 	RX5808_Get_Language,\
 	RX5808_Get_Signal_Source,\
+	RX5808_Get_LED_Brightness,\
 	RX5808_Get_CPU_Freq,\
 	RX5808_Get_GUI_Update_Rate
 };
