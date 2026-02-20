@@ -1,17 +1,19 @@
 /**
  * @file diversity.c
  * @brief Advanced diversity switching algorithm implementation
- * @version 1.7.0
+ * @version 1.7.1
  */
 
 #include "diversity.h"
 #include "rx5808.h"
+#include "hwvers.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "nvs_flash.h"
 #include "nvs.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "driver/gpio.h"
 #include <string.h>
 #include <math.h>
 
@@ -72,7 +74,7 @@ static uint8_t g_switch_history_index = 0;
  * @brief Initialize diversity system
  */
 void diversity_init(void) {
-    ESP_LOGI(TAG, "Initializing diversity system v1.7.0");
+    ESP_LOGI(TAG, "Initializing diversity system v1.7.1");
     
     memset(&g_diversity_state, 0, sizeof(diversity_state_t));
     
@@ -320,8 +322,16 @@ static void diversity_perform_switch(diversity_state_t* state) {
     g_switch_timestamps[g_switch_history_index] = now;
     g_switch_history_index = (g_switch_history_index + 1) % SWITCH_HISTORY_SIZE;
     
-    // Actually switch the hardware (call into RX5808 driver)
-    // TODO: Add hardware switching call when integrated
+    // Hardware antenna switching - control physical RF path
+    if (state->active_rx == DIVERSITY_RX_A) {
+        // RX_A: Set SWITCH1=1, SWITCH0=0
+        gpio_set_level(RX5808_SWITCH1, 1);
+        gpio_set_level(RX5808_SWITCH0, 0);
+    } else {
+        // RX_B: Set SWITCH0=1, SWITCH1=0
+        gpio_set_level(RX5808_SWITCH0, 1);
+        gpio_set_level(RX5808_SWITCH1, 0);
+    }
     
     ESP_LOGI(TAG, "Switched to RX_%c (switches=%lu)", 
              state->active_rx == DIVERSITY_RX_A ? 'A' : 'B',
@@ -330,6 +340,7 @@ static void diversity_perform_switch(diversity_state_t* state) {
 
 /**
  * @brief Main diversity update function - call at DIVERSITY_SAMPLE_RATE_HZ
+ * Implements adaptive sampling: 100Hz (10ms) during active switching, 20Hz (50ms) when stable
  */
 void diversity_update(void) {
     if (!g_diversity_initialized) {
@@ -340,8 +351,40 @@ void diversity_update(void) {
     diversity_state_t* state = &g_diversity_state;
     const diversity_mode_params_t* params = &diversity_mode_params[state->mode];
     
-    // Sample raw RSSI from both receivers
-    // TODO: Replace with actual ADC reads from RX5808
+    // Calculate switches per second over last 5 seconds
+    uint32_t window_start = now - 5000; // 5 second window
+    uint32_t recent_switches = 0;
+    for (uint8_t i = 0; i < SWITCH_HISTORY_SIZE; i++) {
+        if (g_switch_timestamps[i] >= window_start && g_switch_timestamps[i] <= now) {
+            recent_switches++;
+        }
+    }
+    state->switches_per_second = recent_switches / 5.0f;
+    
+    // Adaptive sampling rate: switch between 20Hz (50ms) and 100Hz (10ms)
+    // High rate (100Hz): switches_per_second >= 2 OR time_stable < 3s
+    // Low rate (20Hz):  switches_per_second < 2 AND time_stable >= 3s
+    uint32_t time_since_last_sample = now - state->last_sample_ms;
+    
+    if (state->switches_per_second >= 2.0f || state->time_stable_ms < 3000) {
+        // High activity mode: 100Hz sampling (10ms intervals)
+        state->adaptive_high_rate = true;
+        if (time_since_last_sample < 10) {
+            return; // Skip this call, not enough time elapsed
+        }
+    } else {
+        // Low activity mode: 20Hz sampling (50ms intervals)
+        state->adaptive_high_rate = false;
+        if (time_since_last_sample < 50) {
+            return; // Skip this call, not enough time elapsed
+        }
+    }
+    
+    // Update last sample timestamp
+    state->last_sample_ms = now;
+    
+    // Sample raw RSSI from both receivers via ADC
+    // adc_converted_value[] is populated by DMA2_Stream0_IRQHandler in rx5808.c
     state->rx_a.rssi_raw = adc_converted_value[0];  // RSSI A from RX5808
     state->rx_b.rssi_raw = adc_converted_value[1];  // RSSI B from RX5808
     

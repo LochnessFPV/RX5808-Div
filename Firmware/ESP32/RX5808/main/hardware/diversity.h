@@ -109,6 +109,11 @@ typedef struct {
     uint32_t longest_stable_ms;    // Longest stable period
     bool in_cooldown;              // Currently in cooldown period
     
+    // Adaptive sampling (v1.7.1)
+    uint32_t last_sample_ms;       // Last RSSI sampling time
+    bool adaptive_high_rate;       // true=100Hz, false=20Hz
+    float switches_per_second;     // Recent switching rate
+    
     // Telemetry
     int8_t rssi_delta;             // RSSI_A - RSSI_B (signed)
     uint8_t switches_per_min;      // Recent switch rate
