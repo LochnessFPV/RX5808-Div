@@ -316,11 +316,14 @@ static void calibrate_noise_floor(void)
         }
     }
     
+    // MAD-based adaptive margin:
+    // - 1.5*MAD tracks real background spread robustly
+    // - keep a small baseline margin (10% of median) for very stable environments
     uint8_t mad = deviations[NOISE_FLOOR_SAMPLES / 2];
-    
-    // Set noise floor: median + 10% margin
-    // This accounts for natural variation while rejecting outliers beyond 3*MAD
-    uint8_t margin = (median * 10) / 100;
+    uint8_t baseline_margin = (median * 10) / 100;
+    uint8_t mad_margin = (mad * 3) / 2;
+    uint8_t margin = (mad_margin > baseline_margin) ? mad_margin : baseline_margin;
+
     noise_floor = median + margin;
     
     // Cap at reasonable value
