@@ -75,6 +75,8 @@ static uint8_t bandx_edit_channel = 0;        // Which Band X channel we're edit
 static uint32_t enter_press_start = 0;        // Time when ENTER was pressed
 static uint32_t last_enter_click = 0;         // Time of last ENTER click
 static bool enter_is_pressed = false;         // ENTER currently held down
+static uint32_t last_nav_tick = 0;            // Last accepted directional movement tick
+static uint32_t last_nav_key = 0;             // Last accepted directional key
 
 // Forward declarations
 static void spectrum_exit_callback(lv_anim_t* anim);
@@ -533,6 +535,22 @@ static void spectrum_event_handler(lv_event_t* event)
     }
     
     if (code != LV_EVENT_KEY) return;
+
+    // Limit directional auto-repeat to prevent first-press overshoot on noisy ADC keys.
+    // In normal Spectrum mode only LEFT/RIGHT are accepted for horizontal movement.
+    bool is_nav_key =
+        key == LV_KEY_LEFT || key == LV_KEY_RIGHT ||
+        key == LV_KEY_UP || key == LV_KEY_DOWN ||
+        (bandx_selection_mode && (key == LV_KEY_PREV || key == LV_KEY_NEXT));
+
+    if (is_nav_key) {
+        uint32_t now = lv_tick_get();
+        if (key == last_nav_key && (now - last_nav_tick) < 120) {
+            return;
+        }
+        last_nav_key = key;
+        last_nav_tick = now;
+    }
     
     switch (key) {
         case LV_KEY_ESC:
@@ -548,12 +566,32 @@ static void spectrum_event_handler(lv_event_t* event)
                 update_cursor();
             }
             break;
+
+        case LV_KEY_PREV:
+            if (bandx_selection_mode) {
+                beep_turn_on();
+                if (cursor_position > 0) {
+                    cursor_position--;
+                    update_cursor();
+                }
+            }
+            break;
             
         case LV_KEY_RIGHT:
             beep_turn_on();
             if (cursor_position < SPECTRUM_BINS - 1) {
                 cursor_position++;
                 update_cursor();
+            }
+            break;
+
+        case LV_KEY_NEXT:
+            if (bandx_selection_mode) {
+                beep_turn_on();
+                if (cursor_position < SPECTRUM_BINS - 1) {
+                    cursor_position++;
+                    update_cursor();
+                }
             }
             break;
             
@@ -638,6 +676,8 @@ void page_spectrum_create(bool bandx_selection, uint8_t bandx_channel)
     bandx_selection_mode = bandx_selection;
     bandx_edit_channel = bandx_channel;  // 0-7 for CH1-CH8
     last_enter_click = 0;  // Reset double-click timer
+    last_nav_tick = 0;
+    last_nav_key = 0;
     
     // Create container
     spectrum_contain = lv_obj_create(lv_scr_act());
@@ -734,6 +774,7 @@ void page_spectrum_create(bool bandx_selection, uint8_t bandx_channel)
     spectrum_group = lv_group_create();
     lv_group_add_obj(spectrum_group, spectrum_contain);
     lv_indev_set_group(indev_keypad, spectrum_group);
+    lv_group_set_editing(spectrum_group, true);
     lv_obj_add_event_cb(spectrum_contain, spectrum_event_handler, LV_EVENT_KEY, NULL);
     lv_obj_add_event_cb(spectrum_contain, spectrum_event_handler, LV_EVENT_PRESSED, NULL);
     lv_obj_add_event_cb(spectrum_contain, spectrum_event_handler, LV_EVENT_RELEASED, NULL);
