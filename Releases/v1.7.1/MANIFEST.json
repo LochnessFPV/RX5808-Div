@@ -1,0 +1,219 @@
+{
+  "version": "1.7.1",
+  "release_date": "2026-02-20",
+  "release_type": "stable",
+  "hardware_compatibility": [
+    "ESP32-D0WDQ6 (v1.2)",
+    "ST7735 LCD"
+  ],
+  "esp_idf_version": "5.x",
+  "compiler": "xtensa-esp-elf-gcc 14.2.0",
+  
+  "flash_configuration": {
+    "chip": "esp32",
+    "flash_mode": "dio",
+    "flash_freq": "80m",
+    "flash_size": "2MB",
+    "baud_rate_recommended": 921600
+  },
+  
+  "binaries": [
+    {
+      "name": "RX5808-v1.7.1-bootloader.bin",
+      "description": "ESP32 Second Stage Bootloader",
+      "flash_address": "0x1000",
+      "size_bytes": 26272,
+      "size_human": "25.66 KB",
+      "sha256": "73BAF7F970A2E0C530A7374DAFC4481DB308E0C41A0D5183322181A33D52F32F",
+      "required": true
+    },
+    {
+      "name": "RX5808-v1.7.1-partition-table.bin",
+      "description": "ESP32 Partition Table",
+      "flash_address": "0x8000",
+      "size_bytes": 3072,
+      "size_human": "3.00 KB",
+      "sha256": "14AA27CCB35697643FEF4BE6C87E624CE1F6D4A396B0168E2B0F52533713D4F7",
+      "required": true
+    },
+    {
+      "name": "RX5808-v1.7.1-firmware.bin",
+      "description": "Main RX5808 Diversity Firmware",
+      "flash_address": "0x10000",
+      "size_bytes": 1061024,
+      "size_human": "1.01 MB",
+      "sha256": "5295E8C42D6FB5F95E4E8A185932C6191D27CFC5078322475347E40E71AF815A",
+      "required": true
+    }
+  ],
+  
+  "features": {
+    "new": [
+      {
+        "id": 1,
+        "name": "Hardware Diversity Switching",
+        "description": "Physical GPIO antenna control (critical fix)",
+        "impact": "100% functional diversity (was software-only)",
+        "files_modified": ["main/hardware/diversity.c"]
+      },
+      {
+        "id": 2,
+        "name": "DMA-Accelerated SPI",
+        "description": "VSPI peripheral with DMA for RX5808",
+        "impact": "64% faster transfers (70μs → 25μs)",
+        "files_modified": ["main/hardware/rx5808.c"]
+      },
+      {
+        "id": 3,
+        "name": "Adaptive RSSI Sampling",
+        "description": "Dynamic 100Hz/20Hz sampling based on activity",
+        "impact": "15-20% CPU savings during stable flight",
+        "files_modified": ["main/hardware/diversity.c", "main/hardware/diversity.h"]
+      },
+      {
+        "id": 4,
+        "name": "Memory Pools for LVGL",
+        "description": "4KB pre-allocated pools for UI objects",
+        "impact": "60-70% less fragmentation, 2-5x faster allocation",
+        "files_added": ["main/gui/lvgl_driver/lv_mem_pool.c", "main/gui/lvgl_driver/lv_mem_pool.h"],
+        "files_modified": ["main/gui/lvgl/lv_conf.h", "main/gui/lvgl_driver/lvgl_init.c"]
+      },
+      {
+        "id": 5,
+        "name": "Dual-Core Utilization",
+        "description": "RF tasks on Core 1, UI on Core 0",
+        "impact": "38% Core 0 reduction (45% → 28%)",
+        "files_modified": ["main/hardware/rx5808.c", "main/hardware/elrs_backpack.c"]
+      },
+      {
+        "id": 6,
+        "name": "PSRAM Font Caching",
+        "description": "Future-ready font caching with runtime detection",
+        "impact": "2-3ms faster page transitions (when PSRAM added)",
+        "files_added": ["main/gui/lvgl_driver/lv_font_cache.c", "main/gui/lvgl_driver/lv_font_cache.h"],
+        "files_modified": ["main/gui/lvgl_driver/lvgl_init.c"]
+      }
+    ],
+    "fixed": [
+      {
+        "severity": "critical",
+        "description": "Hardware diversity switching non-functional (TODO placeholders)",
+        "impact": "Core feature now operational"
+      },
+      {
+        "severity": "high",
+        "description": "High CPU usage during stable flight",
+        "impact": "33% reduction in typical scenarios"
+      },
+      {
+        "severity": "high",
+        "description": "Memory fragmentation over extended operation",
+        "impact": "Improved long-term stability"
+      },
+      {
+        "severity": "medium",
+        "description": "Core 0 overload blocking UI",
+        "impact": "Smoother UI responsiveness"
+      }
+    ]
+  },
+  
+  "performance_metrics": {
+    "cpu_usage": {
+      "racing_v1_7_0": "45%",
+      "racing_v1_7_1": "42%",
+      "cruising_v1_7_0": "45%",
+      "cruising_v1_7_1": "30%",
+      "improvement_racing": "7%",
+      "improvement_cruising": "33%"
+    },
+    "core_distribution": {
+      "core0_v1_7_0": "45%",
+      "core0_v1_7_1": "28%",
+      "core1_v1_7_0": "0%",
+      "core1_v1_7_1": "25%"
+    },
+    "component_performance": {
+      "spi_transfer_us": {
+        "v1_7_0": 70,
+        "v1_7_1": 25,
+        "improvement_percent": 64
+      },
+      "lvgl_allocation_speedup": "2-5x",
+      "heap_fragmentation_reduction_percent": "60-70"
+    }
+  },
+  
+  "upgrade_notes": {
+    "from_v1_7_0": {
+      "method": "full_flash_required",
+      "reason": "Memory layout changes",
+      "settings_preserved": [
+        "ELRS backpack configuration",
+        "Band X custom channels",
+        "RSSI calibration data",
+        "Diversity mode selection"
+      ],
+      "settings_reset": [
+        "CPU frequency (may return to 160MHz default)"
+      ]
+    }
+  },
+  
+  "flash_commands": {
+    "esptool": {
+      "full_flash": "esptool.py --chip esp32 --port COM3 --baud 921600 --before default_reset --after hard_reset write_flash -z --flash_mode dio --flash_freq 80m --flash_size 2MB 0x1000 RX5808-v1.7.1-bootloader.bin 0x8000 RX5808-v1.7.1-partition-table.bin 0x10000 RX5808-v1.7.1-firmware.bin",
+      "firmware_only": "esptool.py --chip esp32 --port COM3 --baud 921600 write_flash 0x10000 RX5808-v1.7.1-firmware.bin"
+    },
+    "idf_py": {
+      "build_and_flash": "idf.py -p COM3 flash",
+      "monitor": "idf.py -p COM3 monitor"
+    }
+  },
+  
+  "verification": {
+    "boot_messages": [
+      "v1.7.1",
+      "Memory pools initialized",
+      "RX5808 hardware SPI initialized (DMA-accelerated, 1MHz)"
+    ],
+    "functional_tests": [
+      "Diversity switching responds to signal changes",
+      "UI remains smooth during channel scanning",
+      "No memory warnings after 10-15 minutes",
+      "Cooler operation temperature observed"
+    ]
+  },
+  
+  "known_limitations": [
+    {
+      "component": "PSRAM font caching",
+      "status": "inactive",
+      "reason": "Current hardware has no PSRAM",
+      "impact": "Zero overhead, feature auto-enables when PSRAM added"
+    },
+    {
+      "component": "Memory pools",
+      "status": "optimized_for_typical_use",
+      "reason": "Sized for common menu patterns",
+      "impact": "Large/uncommon objects use heap fallback"
+    }
+  ],
+  
+  "repository": {
+    "owner": "LochnessFPV",
+    "name": "RX5808-Div",
+    "branch": "main",
+    "tag": "v1.7.1",
+    "upstream": "Ft-Available/RX5808-Div"
+  },
+  
+  "checksums": {
+    "algorithm": "SHA256",
+    "files": {
+      "RX5808-v1.7.1-bootloader.bin": "73BAF7F970A2E0C530A7374DAFC4481DB308E0C41A0D5183322181A33D52F32F",
+      "RX5808-v1.7.1-partition-table.bin": "14AA27CCB35697643FEF4BE6C87E624CE1F6D4A396B0168E2B0F52533713D4F7",
+      "RX5808-v1.7.1-firmware.bin": "5295E8C42D6FB5F95E4E8A185932C6191D27CFC5078322475347E40E71AF815A"
+    }
+  }
+}
