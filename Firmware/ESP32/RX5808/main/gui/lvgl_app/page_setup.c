@@ -45,6 +45,7 @@ static elrs_bind_state_t last_elrs_state = ELRS_STATE_UNBOUND;
 static lv_obj_t* vtx_band_swap_label;     // "VTX Bands" title  
 static lv_obj_t* vtx_band_swap_switch;    // ON/OFF switch for R↔L band swapping
 #endif
+static lv_obj_t* restore_defaults_label;
 static lv_obj_t* exit_label;
 static lv_obj_t* back_light_bar;
 static lv_obj_t* fan_speed_bar;
@@ -432,6 +433,7 @@ static void page_setup_set_language(uint16_t language)
         lv_obj_set_style_text_font(diversity_mode_label, &lv_font_montserrat_12, LV_STATE_DEFAULT);
         lv_obj_set_style_text_font(cpu_freq_label, &lv_font_montserrat_12, LV_STATE_DEFAULT);
         lv_obj_set_style_text_font(gui_update_rate_label, &lv_font_montserrat_12, LV_STATE_DEFAULT);
+        lv_obj_set_style_text_font(restore_defaults_label, &lv_font_montserrat_12, LV_STATE_DEFAULT);
         lv_obj_set_style_text_font(exit_label, &lv_font_montserrat_12, LV_STATE_DEFAULT);
         lv_label_set_text_fmt(back_light_label, "BckLight");
         lv_label_set_text_fmt(fan_speed_label, "Fan");
@@ -447,6 +449,7 @@ static void page_setup_set_language(uint16_t language)
         lv_label_set_text_fmt(diversity_mode_label, "Div Mode");
         lv_label_set_text_fmt(cpu_freq_label, "CPU Freq");
         lv_label_set_text_fmt(gui_update_rate_label, "GUI Rate");
+        lv_label_set_text_fmt(restore_defaults_label, "Defaults");
         lv_label_set_text_fmt(exit_label, "Save&Exit");
         lv_label_set_text_fmt(osd_format_setup_label, (const char*)(&osd_format_label_text[osd_format_selid % 2]));
         lv_label_set_text_fmt(language_setup_label, (const char*)(&language_label_text[language_selid % 2]));
@@ -470,6 +473,7 @@ static void page_setup_set_language(uint16_t language)
         lv_obj_set_style_text_font(diversity_mode_label, &lv_font_chinese_12, LV_STATE_DEFAULT);
         lv_obj_set_style_text_font(cpu_freq_label, &lv_font_chinese_12, LV_STATE_DEFAULT);
         lv_obj_set_style_text_font(gui_update_rate_label, &lv_font_chinese_12, LV_STATE_DEFAULT);
+        lv_obj_set_style_text_font(restore_defaults_label, &lv_font_chinese_12, LV_STATE_DEFAULT);
         lv_obj_set_style_text_font(exit_label, &lv_font_chinese_12, LV_STATE_DEFAULT);
         lv_label_set_text_fmt(back_light_label, "屏幕背光 ");
         lv_label_set_text_fmt(fan_speed_label, "风扇转速 ");
@@ -485,6 +489,7 @@ static void page_setup_set_language(uint16_t language)
         lv_label_set_text_fmt(diversity_mode_label, "分集模式 ");
         lv_label_set_text_fmt(cpu_freq_label, "CPU频率");
         lv_label_set_text_fmt(gui_update_rate_label, "更新频率");
+        lv_label_set_text_fmt(restore_defaults_label, "恢复默认值");
         lv_label_set_text_fmt(exit_label, "保存并退出 ");
         lv_label_set_text_fmt(osd_format_setup_label, (const char*)(&osd_format_label_text[osd_format_selid % 2]));
         lv_label_set_text_fmt(language_setup_label, (const char*)(&language_label_text[language_selid % 2]));
@@ -742,8 +747,13 @@ void page_setup_create()
     lv_obj_set_size(gui_update_rate_setup_label, 50, 18);
     lv_label_set_long_mode(gui_update_rate_setup_label, LV_LABEL_LONG_WRAP);
     lv_label_set_text_fmt(gui_update_rate_setup_label, (const char*)(&gui_update_rate_label_text[gui_update_rate_selid % 6]));
-
-    exit_label = lv_label_create(menu_setup_contain);
+    restore_defaults_label = lv_label_create(menu_setup_contain);
+    lv_obj_add_style(restore_defaults_label, &style_label, LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(restore_defaults_label, LABEL_FOCUSE_COLOR, LV_STATE_FOCUSED);
+    lv_obj_set_pos(restore_defaults_label, 0, 192);
+    lv_obj_set_size(restore_defaults_label, 75, 20);
+    lv_label_set_long_mode(restore_defaults_label, LV_LABEL_LONG_WRAP);
+        exit_label = lv_label_create(menu_setup_contain);
     lv_obj_add_style(exit_label, &style_label, LV_STATE_DEFAULT);
     lv_obj_set_style_bg_color(exit_label, LABEL_FOCUSE_COLOR, LV_STATE_FOCUSED);
     //lv_label_set_text_fmt(exit_label, "SAVE&EXIT");
@@ -770,6 +780,7 @@ void page_setup_create()
     lv_obj_add_event_cb(diversity_mode_label, setup_event_callback, LV_EVENT_KEY, NULL);
     lv_obj_add_event_cb(cpu_freq_label, setup_event_callback, LV_EVENT_KEY, NULL);
     lv_obj_add_event_cb(gui_update_rate_label, setup_event_callback, LV_EVENT_KEY, NULL);
+    lv_obj_add_event_cb(restore_defaults_label, setup_event_callback, LV_EVENT_KEY, NULL);
     lv_obj_add_event_cb(exit_label, setup_event_callback, LV_EVENT_KEY, NULL);
 
     lv_group_add_obj(setup_group, back_light_label);
@@ -786,6 +797,7 @@ void page_setup_create()
     lv_group_add_obj(setup_group, diversity_mode_label);
     lv_group_add_obj(setup_group, cpu_freq_label);
     lv_group_add_obj(setup_group, gui_update_rate_label);
+    lv_group_add_obj(setup_group, restore_defaults_label);
     lv_group_add_obj(setup_group, exit_label);
     lv_group_set_editing(setup_group, true);
 
@@ -809,7 +821,8 @@ void page_setup_create()
     lv_amin_start(diversity_mode_label, -100, 0, 1, 150, 400, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
     lv_amin_start(cpu_freq_label, -100, 0, 1, 150, 450, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
     lv_amin_start(gui_update_rate_label, -100, 0, 1, 150, 500, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
-    lv_amin_start(exit_label, -100, 0, 1, 150, 550, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
+    lv_amin_start(restore_defaults_label, -100, 0, 1, 150, 550, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
+    lv_amin_start(exit_label, -100, 0, 1, 150, 600, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
 
     lv_amin_start(back_light_bar, 160, 110, 1, 150, 0, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
     lv_amin_start(fan_speed_bar, 160, 110, 1, 150, 50, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
@@ -846,7 +859,8 @@ static void page_setup_exit()
     lv_amin_start(signal_source_label, lv_obj_get_x(signal_source_label), -100, 1, 200, 350, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
     lv_amin_start(diversity_mode_label, lv_obj_get_x(diversity_mode_label), -100, 1, 200, 400, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
     lv_amin_start(cpu_freq_label, lv_obj_get_x(cpu_freq_label), -100, 1, 200, 450, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
-    lv_amin_start(exit_label, lv_obj_get_x(exit_label), -100, 1, 200, 500, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
+    lv_amin_start(restore_defaults_label, lv_obj_get_x(restore_defaults_label), -100, 1, 200, 500, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
+    lv_amin_start(exit_label, lv_obj_get_x(exit_label), -100, 1, 200, 550, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
 
     lv_amin_start(back_light_bar, lv_obj_get_x(back_light_bar), 160, 1, 200, 0, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
     lv_amin_start(fan_speed_bar, lv_obj_get_x(fan_speed_bar), 160, 1, 200, 50, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);

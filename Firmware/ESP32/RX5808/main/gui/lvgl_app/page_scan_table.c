@@ -282,7 +282,7 @@ static void show_switch_confirmation(void)
     // RSSI info label
     lv_obj_t* rssi_label = lv_label_create(confirm_dialog);
     lv_obj_set_style_text_color(rssi_label, lv_color_make(255, 255, 0), LV_STATE_DEFAULT);
-    lv_obj_set_style_text_font(rssi_label, &lv_font_montserrat_14, LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(rssi_label, &lv_font_montserrat_12, LV_STATE_DEFAULT);
     if (RX5808_Get_Language() == 0)
     {
         lv_label_set_text_fmt(rssi_label, "Signal: %d%%", rssi_percent);

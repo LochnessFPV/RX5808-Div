@@ -3,6 +3,7 @@
 #include "page_menu.h"
 #include "page_main.h"
 #include "rx5808.h"
+#include "rx5808_config.h"
 #include "lvgl_stl.h"
 #include "beep.h"
 
@@ -75,7 +76,6 @@ static void page_scan_chart_timer_event(lv_timer_t* tmr)
 static void page_scan_event_callback(lv_event_t* event)
 {
     lv_event_code_t code = lv_event_get_code(event);
-    lv_obj_t* obj = lv_event_get_target(event);
     if (code == LV_EVENT_KEY)
     {
         //beep_on_off(1);
@@ -185,7 +185,7 @@ static void show_switch_confirmation(void)
     // RSSI info label
     lv_obj_t* rssi_label = lv_label_create(confirm_dialog);
     lv_obj_set_style_text_color(rssi_label, lv_color_make(255, 255, 0), LV_STATE_DEFAULT);
-    lv_obj_set_style_text_font(rssi_label, &lv_font_montserrat_14, LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(rssi_label, &lv_font_montserrat_12, LV_STATE_DEFAULT);
     if (RX5808_Get_Language() == 0)
     {
         lv_label_set_text_fmt(rssi_label, "Signal: %d%%", rssi_percent);
