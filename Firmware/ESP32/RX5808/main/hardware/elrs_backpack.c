@@ -642,7 +642,7 @@ bool ELRS_Backpack_Init(void) {
     // Initialize MSP parser
     msp_parser_init(&msp_parser);
     
-    // Create background task
+    // Create background task on Core 1 for better load distribution (v1.7.1) 
     xTaskCreatePinnedToCore(
         elrs_backpack_task,
         "elrs_backpack",
@@ -650,10 +650,10 @@ bool ELRS_Backpack_Init(void) {
         NULL,
         3,
         &elrs_task_handle,
-        0
+        1  // Core 1 - offload network processing from UI core
     );
     
-    ESP_LOGI(TAG, "ELRS Backpack initialized successfully");
+    ESP_LOGI(TAG, "ELRS Backpack initialized successfully (Core 1)");
     return true;
 }
 
