@@ -77,24 +77,34 @@ Fix critical UX pain points identified in v1.7.1:
 ---
 
 ### **Phase 3: Menu Reorganization** ⭐ Priority: HIGH
-**Status:** 🔴 Not Started  
+**Status:** ✅ Complete  
 **Target:** Week 4  
 **Files:**
-- `main/gui/lvgl_app/page_menu.c`
-- `main/gui/lvgl_app/page_menu.h`
-- `main/gui/lvgl_app/page_scan.c`
+- `main/gui/lvgl_app/page_menu.h` ✅
+- `main/gui/lvgl_app/page_menu.c` ✅
+- `main/gui/lvgl_app/page_scan.c` ✅
+- `main/gui/lvgl_app/page_drone_finder.c` ✅
 
 **Tasks:**
-- [ ] Remove "Receiver" submenu
-- [ ] Flatten to 7 main menu items
-- [ ] Update navigation paths
-- [ ] Test all menu workflows
+- [x] Remove "Receiver" submenu (renamed to "Quick Scan")
+- [x] Flatten to 7 main menu items
+- [x] Update navigation paths
+- [x] Test all menu workflows
 
 **Acceptance Criteria:**
 - ✅ 7-item flat menu
 - ✅ Quick Scan at top level
 - ✅ Calibration at top level
 - ✅ No nested submenus
+
+**Implementation Details:**
+- Renamed: item_scan → item_quick_scan
+- New order: Quick Scan, Spectrum, Calibration, Band X, Finder, Setup, About
+- Labels: "Quick Scan" (English), "快速扫描" (Chinese)
+- Icons reordered to match new structure
+- Colors maintained: Red, Purple, Green, Cyan, Blue, Orange, Gray
+- All menu references updated across 4 files
+- Commit: 37dfc10
 
 ---
 
