@@ -223,11 +223,11 @@ static void update_zoom_indicator(void)
     const char* zoom_text;
     switch (zoom_level) {
         case ZOOM_NARROW:
-            zoom_text = "ZOOM: 1MHz/bar";
+            zoom_text = "1MHz/bar";
             lv_obj_set_style_text_color(zoom_indicator, lv_color_hex(0xFF0000), 0);
             break;
         case ZOOM_MEDIUM:
-            zoom_text = "ZOOM: 4MHz/bar";
+            zoom_text = "4MHz/bar";
             lv_obj_set_style_text_color(zoom_indicator, lv_color_hex(0xFFFF00), 0);
             break;
         case ZOOM_FULL:
@@ -742,22 +742,19 @@ void page_spectrum_create(bool bandx_selection, uint8_t bandx_channel)
     lv_obj_set_size(bandx_status_label, 104, 12);
     lv_label_set_long_mode(bandx_status_label, LV_LABEL_LONG_CLIP);
 
-    // Zoom indicator (top right) — hidden in Band X edit mode (zoom is not the focus)
+    // Zoom indicator — normally top-right; in Band X edit mode anchored at x=106
+    // next to the status label (x=2 w=104) so both fit on the 160px top row.
     zoom_indicator = lv_label_create(spectrum_contain);
     lv_label_set_text(zoom_indicator, "16MHz/bar");
     lv_obj_set_style_text_font(zoom_indicator, &lv_font_chinese_12, 0);
     lv_obj_set_style_text_color(zoom_indicator, lv_color_hex(0x808080), 0);
-    lv_obj_align(zoom_indicator, LV_ALIGN_TOP_RIGHT, -2, 2);
+    lv_label_set_long_mode(zoom_indicator, LV_LABEL_LONG_CLIP);
     if (bandx_selection_mode) {
-        lv_obj_add_flag(zoom_indicator, LV_OBJ_FLAG_HIDDEN);
-        // Instruction hint at top-right ("OK=Save" fits in the freed space)
-        lv_obj_t* bandx_hint = lv_label_create(spectrum_contain);
-        lv_label_set_text(bandx_hint, "OK=Save");
-        lv_obj_set_style_text_font(bandx_hint, &lv_font_chinese_12, 0);
-        lv_obj_set_style_text_color(bandx_hint, lv_color_hex(0xFFFF00), 0);
-        lv_obj_set_pos(bandx_hint, 106, 2);
-        lv_obj_set_size(bandx_hint, 54, 12);
-        lv_label_set_long_mode(bandx_hint, LV_LABEL_LONG_CLIP);
+        // Place right of status label (status ends at x=106, screen ends at x=160)
+        lv_obj_set_pos(zoom_indicator, 106, 2);
+        lv_obj_set_size(zoom_indicator, 52, 12);
+    } else {
+        lv_obj_align(zoom_indicator, LV_ALIGN_TOP_RIGHT, -2, 2);
     }
     update_bandx_status();
     
