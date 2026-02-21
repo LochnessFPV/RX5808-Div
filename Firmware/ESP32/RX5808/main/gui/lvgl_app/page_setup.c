@@ -61,15 +61,15 @@ static lv_obj_t* diversity_mode_setup_label;
 static lv_obj_t* cpu_freq_setup_label;
 static lv_obj_t* gui_update_rate_setup_label;
 
-const char language_label_text[][24] = { "English","ä¸­æ–‡" };
+const char language_label_text[][24] = { "English","??" };
 const char osd_format_label_text[][5] = { "PAL","NTSC" };
 const char signal_source_label_text[][6] = { "Auto","Recv1","Recv2","None" };
-const char signal_source_label_chinese_text[][24] = { "è‡ªåŠ¨","æŽ¥æ”¶æœº1","æŽ¥æ”¶æœº2","å…³é—­"};
+const char signal_source_label_chinese_text[][24] = { "??","???1","???2","??"};
 const char diversity_mode_label_text[][6] = { "RACE","FREE","L-R" };
-const char diversity_mode_label_chinese_text[][24] = { "ç«žé€Ÿ","è‡ªç”±","è¿œç¨‹"};
+const char diversity_mode_label_chinese_text[][24] = { "??","??","??"};
 const char cpu_freq_label_text[][8] = { "80MHz","160MHz","240MHz","AUTO" };
 const char gui_update_rate_label_text[][7] = { "10Hz","14Hz","20Hz","25Hz","50Hz","100Hz" };
-const char gui_update_rate_label_chinese_text[][24] = { "10èµ«å…¹","14èµ«å…¹","20èµ«å…¹","25èµ«å…¹","50èµ«å…¹","100èµ«å…¹" };
+const char gui_update_rate_label_chinese_text[][24] = { "10??","14??","20??","25??","50??","100??" };
 
 static uint32_t language_selid = 65532;
 static uint32_t signal_source_selid = 65532;
@@ -529,23 +529,23 @@ static void page_setup_set_language(uint16_t language)
         lv_obj_set_style_text_font(gui_update_rate_label, &lv_font_chinese_12, LV_STATE_DEFAULT);
         lv_obj_set_style_text_font(restore_defaults_label, &lv_font_chinese_12, LV_STATE_DEFAULT);
         lv_obj_set_style_text_font(exit_label, &lv_font_chinese_12, LV_STATE_DEFAULT);
-        lv_label_set_text_fmt(back_light_label, "å±å¹•èƒŒå…‰ ");
-        lv_label_set_text_fmt(led_strength_label, "LEDäº®åº¦ ");
-        lv_label_set_text_fmt(fan_speed_label, "é£Žæ‰‡è½¬é€Ÿ ");
-        lv_label_set_text_fmt(boot_animation_label, "å¼€æœºåŠ¨ç”» ");
-        lv_label_set_text_fmt(beep_label, "èœ‚é¸£å™¨ ");
+        lv_label_set_text_fmt(back_light_label, "屏幕背光 ");
+        lv_label_set_text_fmt(led_strength_label, "LED?? ");
+        lv_label_set_text_fmt(fan_speed_label, "???? ");
+        lv_label_set_text_fmt(boot_animation_label, "???? ");
+        lv_label_set_text_fmt(beep_label, "??? ");
         #ifdef ELRS_BACKPACK_ENABLE
-        lv_label_set_text_fmt(elrs_bind_button_label, "ELRSèƒŒåŒ…");
+        lv_label_set_text_fmt(elrs_bind_button_label, "ELRS??");
         lv_label_set_text_fmt(vtx_band_swap_label, "Swap R/L");
         #endif
-        lv_label_set_text_fmt(osd_format_label, "OSDåˆ¶å¼");
-        lv_label_set_text_fmt(language_label, "ç³»ç»Ÿè¯­è¨€ ");
-        lv_label_set_text_fmt(signal_source_label, "è¾“å‡ºä¿¡å·æº ");
-        lv_label_set_text_fmt(diversity_mode_label, "åˆ†é›†æ¨¡å¼ ");
-        lv_label_set_text_fmt(cpu_freq_label, "CPUé¢‘çŽ‡");
-        lv_label_set_text_fmt(gui_update_rate_label, "æ›´æ–°é¢‘çŽ‡");
-        lv_label_set_text_fmt(restore_defaults_label, "æ¢å¤é»˜è®¤å€¼");
-        lv_label_set_text_fmt(exit_label, "ä¿å­˜å¹¶é€€å‡º ");
+        lv_label_set_text_fmt(osd_format_label, "OSD制式");
+        lv_label_set_text_fmt(language_label, "???? ");
+        lv_label_set_text_fmt(signal_source_label, "输出信号源 ");
+        lv_label_set_text_fmt(diversity_mode_label, "分集模式 ");
+        lv_label_set_text_fmt(cpu_freq_label, "CPU??");
+        lv_label_set_text_fmt(gui_update_rate_label, "????");
+        lv_label_set_text_fmt(restore_defaults_label, "恢复默认值");
+        lv_label_set_text_fmt(exit_label, "保存并退出 ");
         lv_label_set_text_fmt(osd_format_setup_label, (const char*)(&osd_format_label_text[osd_format_selid % 2]));
         lv_label_set_text_fmt(language_setup_label, (const char*)(&language_label_text[language_selid % 2]));
         lv_label_set_text_fmt(signal_source_setup_label, (const char*)(&signal_source_label_chinese_text[signal_source_selid % 4]));

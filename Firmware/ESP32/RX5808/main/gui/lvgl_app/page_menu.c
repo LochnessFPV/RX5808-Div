@@ -49,7 +49,7 @@ static void menu_item_label_update(void);
 static void page_menu_item_create(lv_obj_t* parent, menu_item* item, uint8_t i);
 
 static const char icon_txt_array[menu_item_count][16] = { "Quick Scan","Spectrum","Calibration","Band X Edit","Finder","Setup","About" };
-static const char icon_txt_array_chinese[menu_item_count][24] = { "å¿«é€Ÿæ‰«æ","é¢‘è°± ","æ ¡å‡† ","Xæ³¢æ®µ","å¯»æœº ","è®¾ç½® ","å…³äºŽ " };
+static const char icon_txt_array_chinese[menu_item_count][24] = { "????","?? ","?? ","X??","?? ","?? ","?? " };
 static const lv_img_dsc_t* icon_imagine[menu_item_count] = { &menu_rx_icon,&menu_spectrum_icon,&menu_calib_icon,&menu_bandx_icon,&menu_finder_icon,&menu_setup_icon,&menu_about_icon };
 
 extern const char signal_source_label_text[][10];
@@ -230,9 +230,9 @@ static void menu_item_label_update()
         {
             switch (i)
             {
-            case item_quick_scan:  lv_label_set_text_fmt(rx5808_div_menu[i].item_label0, "ä¿¡å·1:%d%%", (int)Rx5808_Get_Precentage1());
-                lv_label_set_text_fmt(rx5808_div_menu[i].item_label1, "ä¿¡å·2:%d%%", (int)Rx5808_Get_Precentage0()); break;
-            case item_about: lv_label_set_text_fmt(rx5808_div_menu[i].item_label0, "ç”µåŽ‹:%.3fV", Get_Battery_Voltage()); break;
+            case item_quick_scan:  lv_label_set_text_fmt(rx5808_div_menu[i].item_label0, "信号1:%d%%", (int)Rx5808_Get_Precentage1());
+                lv_label_set_text_fmt(rx5808_div_menu[i].item_label1, "信号2:%d%%", (int)Rx5808_Get_Precentage0()); break;
+            case item_about: lv_label_set_text_fmt(rx5808_div_menu[i].item_label0, "电压:%.3fV", Get_Battery_Voltage()); break;
             default:break;
             }
         }
@@ -327,22 +327,22 @@ static void page_menu_item_create(lv_obj_t* parent, menu_item* item, uint8_t i)
         lv_obj_set_style_text_font(item->item_label1, &lv_font_chinese_12, LV_STATE_DEFAULT);
         switch (i)
         {
-        case item_quick_scan:  lv_label_set_text_fmt(item->item_label0, "ä¿¡å·1:%d%%", (int)Rx5808_Get_Precentage1());
-            lv_label_set_text_fmt(item->item_label1, "ä¿¡å·2:%d%%", (int)Rx5808_Get_Precentage0()); break;
-        case item_spectrum: lv_label_set_text_fmt(item->item_label0, "æŸ¥çœ‹é¢‘çŽ‡");
-            lv_label_set_text_fmt(item->item_label1, "é¢‘è°±"); break;
-        case item_calib: lv_label_set_text_fmt(item->item_label0, "åˆ†é›†RSSI");
-            lv_label_set_text_fmt(item->item_label1, "æ ¡å‡†"); break;
-        case item_bandx_select: lv_label_set_text_fmt(item->item_label0, "è‡ªå®šä¹‰8ä¸ª");
-            lv_label_set_text_fmt(item->item_label1, "Xæ³¢æ®µé¢‘é“"); break;
-        case item_drone_finder: lv_label_set_text_fmt(item->item_label0, "æ ¹æ®RSSI");
-            lv_label_set_text_fmt(item->item_label1, "å®šä½ç‚¸æœº"); break;
-        case item_setup: lv_label_set_text_fmt(item->item_label0, "èƒŒå…‰:%d%%", LCD_GET_BLK());
-            //lv_label_set_text_fmt(item->item_label1, beep_get_status() ? "èœ‚é¸£å™¨:æ‰“å¼€" : "èœ‚é¸£å™¨:å…³é—­"); break;
-            lv_label_set_text_fmt(item->item_label1, "ä¿¡å·æº:%s",signal_source_label_chinese_text[RX5808_Get_Signal_Source()%4]); break;
-        case item_about: lv_label_set_text_fmt(item->item_label0, "ç”µåŽ‹:%.3fV", Get_Battery_Voltage());
+        case item_quick_scan:  lv_label_set_text_fmt(item->item_label0, "信号1:%d%%", (int)Rx5808_Get_Precentage1());
+            lv_label_set_text_fmt(item->item_label1, "信号2:%d%%", (int)Rx5808_Get_Precentage0()); break;
+        case item_spectrum: lv_label_set_text_fmt(item->item_label0, "查看频率");
+            lv_label_set_text_fmt(item->item_label1, "频谱"); break;
+        case item_calib: lv_label_set_text_fmt(item->item_label0, "分集RSSI");
+            lv_label_set_text_fmt(item->item_label1, "校准"); break;
+        case item_bandx_select: lv_label_set_text_fmt(item->item_label0, "自定义8个");
+            lv_label_set_text_fmt(item->item_label1, "X波段频道"); break;
+        case item_drone_finder: lv_label_set_text_fmt(item->item_label0, "根据RSSI");
+            lv_label_set_text_fmt(item->item_label1, "定位炸机"); break;
+        case item_setup: lv_label_set_text_fmt(item->item_label0, "背光:%d%%", LCD_GET_BLK());
+            //lv_label_set_text_fmt(item->item_label1, beep_get_status() ? "蜂鸣器:打开" : "蜂鸣器:关闭"); break;
+            lv_label_set_text_fmt(item->item_label1, "信号源:%s",signal_source_label_chinese_text[RX5808_Get_Signal_Source()%4]); break;
+        case item_about: lv_label_set_text_fmt(item->item_label0, "电压:%.3fV", Get_Battery_Voltage());
             //lv_label_set_text_fmt(item->item_label1, "LVGL:v%d.%d.%d", LVGL_VERSION_MAJOR, LVGL_VERSION_MINOR, LVGL_VERSION_PATCH); break;
-            lv_label_set_text_fmt(item->item_label1, "ç‰ˆæœ¬:v%d.%d.%d",RX5808_VERSION_MAJOR, RX5808_VERSION_MINOR, RX5808_VERSION_PATCH);break;
+            lv_label_set_text_fmt(item->item_label1, "版本:v%d.%d.%d",RX5808_VERSION_MAJOR, RX5808_VERSION_MINOR, RX5808_VERSION_PATCH);break;
         default:break;
         }
     }
