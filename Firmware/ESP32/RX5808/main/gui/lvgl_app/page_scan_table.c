@@ -7,6 +7,7 @@
 #include "lvgl_stl.h"
 #include "beep.h"
 #include "led.h"
+#include "lv_anim_helpers.h"
 
 LV_FONT_DECLARE(lv_font_chinese_16);
 
@@ -129,7 +130,7 @@ static void page_scan_table_timer_event(lv_timer_t* tmr)
             }
             else
             {
-                lv_label_set_text_fmt(scan_info_label, "%s", "扫描结束!");
+                lv_label_set_text_fmt(scan_info_label, "%s", "æ‰«æç»“æŸ!");
             }
             lv_obj_set_style_text_opa(scan_info_label, LV_OPA_COVER, LV_STATE_DEFAULT);
             lv_obj_set_style_text_color(scan_info_label, lv_color_make(0, 255, 0), LV_STATE_DEFAULT);
@@ -198,9 +199,9 @@ static void group_obj_scroll(lv_group_t* g)
 
 static void page_scan_table_exit()
 {
-    lv_amin_start(scan_info_label, lv_obj_get_y(scan_info_label), -20, 1, 200, 300, (lv_anim_exec_xcb_t)lv_obj_set_y, page_scan_table_anim_leave);
-    lv_amin_start(fre_info_label, lv_obj_get_y(fre_info_label), -20, 1, 200, 300, (lv_anim_exec_xcb_t)lv_obj_set_y, page_scan_table_anim_leave);
-    lv_amin_start(scan_info_cont, lv_obj_get_y(scan_info_cont), 80, 1, 500, 0, (lv_anim_exec_xcb_t)lv_obj_set_y, page_scan_table_anim_leave);
+    lv_amin_start(scan_info_label, lv_obj_get_y(scan_info_label), -20, 1, 200, 300, anim_set_y_cb, page_scan_table_anim_leave);
+    lv_amin_start(fre_info_label, lv_obj_get_y(fre_info_label), -20, 1, 200, 300, anim_set_y_cb, page_scan_table_anim_leave);
+    lv_amin_start(scan_info_cont, lv_obj_get_y(scan_info_cont), 80, 1, 500, 0, anim_set_y_cb, page_scan_table_anim_leave);
     if (time_repeat_count < 47)
     {
         RX5808_Set_Freq(Rx5808_Freq[Chx_count][channel_count]);
@@ -283,7 +284,7 @@ static void show_switch_confirmation(void)
     }
     else
     {
-        lv_label_set_text(title_label, "切换频道?");
+        lv_label_set_text(title_label, "åˆ‡æ¢é¢‘é“?");
     }
     lv_obj_align(title_label, LV_ALIGN_TOP_MID, 0, 5);
     
@@ -307,7 +308,7 @@ static void show_switch_confirmation(void)
     }
     else
     {
-        lv_label_set_text_fmt(rssi_label, "信号: %d%%", rssi_percent);
+        lv_label_set_text_fmt(rssi_label, "ä¿¡å·: %d%%", rssi_percent);
     }
     lv_obj_align(rssi_label, LV_ALIGN_CENTER, 0, 10);
     
@@ -321,7 +322,7 @@ static void show_switch_confirmation(void)
     }
     else
     {
-        lv_label_set_text(instr_label, "确认=是  返回=否");
+        lv_label_set_text(instr_label, "ç¡®è®¤=æ˜¯  è¿”å›ž=å¦");
     }
     lv_obj_align(instr_label, LV_ALIGN_BOTTOM_MID, 0, -5);
     
@@ -374,7 +375,7 @@ void page_scan_table_create()
     }
     else
     {
-        lv_label_set_text_fmt(scan_info_label, "%s", "扫描中....");
+        lv_label_set_text_fmt(scan_info_label, "%s", "æ‰«æä¸­....");
         lv_obj_set_style_text_font(scan_info_label, &lv_font_chinese_16, LV_STATE_DEFAULT);
     }
 
@@ -410,7 +411,7 @@ void page_scan_table_create()
     lv_anim_set_var(&anim, scan_info_label);
     lv_anim_set_values(&anim, 255, 0);
     lv_anim_set_repeat_count(&anim, 3);
-    lv_anim_set_exec_cb(&anim, (lv_anim_exec_xcb_t)lv_obj_opa_cb);
+    lv_anim_set_exec_cb(&anim, anim_opa_cb);
     lv_anim_set_time(&anim, (scan_turn_time - 5) * 8);
     lv_anim_set_playback_time(&anim, (scan_turn_time - 5) * 8);
     lv_anim_set_path_cb(&anim, lv_anim_path_linear);
@@ -420,7 +421,7 @@ void page_scan_table_create()
     scan_table_timer = lv_timer_create(page_scan_table_timer_event, scan_turn_time, NULL);
     lv_timer_set_repeat_count(scan_table_timer, 48);
 
-    lv_amin_start(scan_info_label, -20, 0, 1, 200, 300, (lv_anim_exec_xcb_t)lv_obj_set_y, page_scan_table_anim_enter);
-    lv_amin_start(fre_info_label, -20, 0, 1, 200, 300, (lv_anim_exec_xcb_t)lv_obj_set_y, page_scan_table_anim_enter);
-    lv_amin_start(scan_info_cont, 80, 20, 1, 500, 0, (lv_anim_exec_xcb_t)lv_obj_set_y, page_scan_table_anim_enter);
+    lv_amin_start(scan_info_label, -20, 0, 1, 200, 300, anim_set_y_cb, page_scan_table_anim_enter);
+    lv_amin_start(fre_info_label, -20, 0, 1, 200, 300, anim_set_y_cb, page_scan_table_anim_enter);
+    lv_amin_start(scan_info_cont, 80, 20, 1, 500, 0, anim_set_y_cb, page_scan_table_anim_enter);
 }

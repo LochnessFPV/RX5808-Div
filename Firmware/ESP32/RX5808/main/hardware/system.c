@@ -102,8 +102,8 @@ void system_apply_cpu_freq(uint16_t freq_setting)
     // Power management not enabled, log current frequency
     uint32_t current_freq = 0;
     esp_clk_tree_src_get_freq_hz(SOC_MOD_CLK_CPU, ESP_CLK_TREE_SRC_FREQ_PRECISION_CACHED, &current_freq);
-	ESP_LOGI(TAG, "PM not enabled. Current CPU frequency: %lu MHz (requested mode: %s)", 
-			 current_freq / 1000000, auto_mode ? "AUTO" : "FIXED");
+	ESP_LOGI(TAG, "PM not enabled. Current CPU frequency: %lu MHz (requested %lu MHz, mode: %s)", 
+			 current_freq / 1000000, freq_mhz, auto_mode ? "AUTO" : "FIXED");
     ESP_LOGI(TAG, "To enable dynamic frequency scaling, set CONFIG_PM_ENABLE=y in sdkconfig");
     #endif
 }
@@ -205,7 +205,8 @@ void create_cpu_stack_monitor_task()
 
 void cpu_stack_monitor_task(void *param)
 {
-	uint8_t CPU_STACK_RunInfo[400]; 
+	uint8_t CPU_STACK_RunInfo[400];
+	(void)CPU_STACK_RunInfo; /* buffer used only when debug logging is re-enabled */
 
 	while (1) {
 		// memset(CPU_STACK_RunInfo,0,400); 

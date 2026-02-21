@@ -10,6 +10,7 @@
 #include "lv_port_disp.h"
 #include "diversity.h"
 #include "system.h"
+#include "lv_anim_helpers.h"
 
 #ifdef ELRS_BACKPACK_ENABLE
 #include "elrs_backpack.h"
@@ -44,7 +45,7 @@ static lv_obj_t* elrs_status_value;       // "Bound"/"Unbound"/"Binding..." stat
 static lv_timer_t* elrs_status_timer = NULL;
 static elrs_bind_state_t last_elrs_state = ELRS_STATE_UNBOUND;
 static lv_obj_t* vtx_band_swap_label;     // "VTX Bands" title  
-static lv_obj_t* vtx_band_swap_switch;    // ON/OFF switch for R↔L band swapping
+static lv_obj_t* vtx_band_swap_switch;    // ON/OFF switch for Râ†”L band swapping
 #endif
 static lv_obj_t* restore_defaults_label;
 static lv_obj_t* exit_label;
@@ -60,15 +61,15 @@ static lv_obj_t* diversity_mode_setup_label;
 static lv_obj_t* cpu_freq_setup_label;
 static lv_obj_t* gui_update_rate_setup_label;
 
-const char language_label_text[][10] = { "English","中文" };
+const char language_label_text[][24] = { "English","ä¸­æ–‡" };
 const char osd_format_label_text[][5] = { "PAL","NTSC" };
 const char signal_source_label_text[][6] = { "Auto","Recv1","Recv2","None" };
-const char signal_source_label_chinese_text[][12] = { "自动","接收机1","接收机2","关闭"};
+const char signal_source_label_chinese_text[][24] = { "è‡ªåŠ¨","æŽ¥æ”¶æœº1","æŽ¥æ”¶æœº2","å…³é—­"};
 const char diversity_mode_label_text[][6] = { "RACE","FREE","L-R" };
-const char diversity_mode_label_chinese_text[][9] = { "竞速","自由","远程"};
+const char diversity_mode_label_chinese_text[][24] = { "ç«žé€Ÿ","è‡ªç”±","è¿œç¨‹"};
 const char cpu_freq_label_text[][8] = { "80MHz","160MHz","240MHz","AUTO" };
 const char gui_update_rate_label_text[][7] = { "10Hz","14Hz","20Hz","25Hz","50Hz","100Hz" };
-const char gui_update_rate_label_chinese_text[][10] = { "10赫兹","14赫兹","20赫兹","25赫兹","50赫兹","100赫兹" };
+const char gui_update_rate_label_chinese_text[][24] = { "10èµ«å…¹","14èµ«å…¹","20èµ«å…¹","25èµ«å…¹","50èµ«å…¹","100èµ«å…¹" };
 
 static uint32_t language_selid = 65532;
 static uint32_t signal_source_selid = 65532;
@@ -528,23 +529,23 @@ static void page_setup_set_language(uint16_t language)
         lv_obj_set_style_text_font(gui_update_rate_label, &lv_font_chinese_12, LV_STATE_DEFAULT);
         lv_obj_set_style_text_font(restore_defaults_label, &lv_font_chinese_12, LV_STATE_DEFAULT);
         lv_obj_set_style_text_font(exit_label, &lv_font_chinese_12, LV_STATE_DEFAULT);
-        lv_label_set_text_fmt(back_light_label, "屏幕背光 ");
-        lv_label_set_text_fmt(led_strength_label, "LED亮度 ");
-        lv_label_set_text_fmt(fan_speed_label, "风扇转速 ");
-        lv_label_set_text_fmt(boot_animation_label, "开机动画 ");
-        lv_label_set_text_fmt(beep_label, "蜂鸣器 ");
+        lv_label_set_text_fmt(back_light_label, "å±å¹•èƒŒå…‰ ");
+        lv_label_set_text_fmt(led_strength_label, "LEDäº®åº¦ ");
+        lv_label_set_text_fmt(fan_speed_label, "é£Žæ‰‡è½¬é€Ÿ ");
+        lv_label_set_text_fmt(boot_animation_label, "å¼€æœºåŠ¨ç”» ");
+        lv_label_set_text_fmt(beep_label, "èœ‚é¸£å™¨ ");
         #ifdef ELRS_BACKPACK_ENABLE
-        lv_label_set_text_fmt(elrs_bind_button_label, "ELRS背包");
+        lv_label_set_text_fmt(elrs_bind_button_label, "ELRSèƒŒåŒ…");
         lv_label_set_text_fmt(vtx_band_swap_label, "Swap R/L");
         #endif
-        lv_label_set_text_fmt(osd_format_label, "OSD制式");
-        lv_label_set_text_fmt(language_label, "系统语言 ");
-        lv_label_set_text_fmt(signal_source_label, "输出信号源 ");
-        lv_label_set_text_fmt(diversity_mode_label, "分集模式 ");
-        lv_label_set_text_fmt(cpu_freq_label, "CPU频率");
-        lv_label_set_text_fmt(gui_update_rate_label, "更新频率");
-        lv_label_set_text_fmt(restore_defaults_label, "恢复默认值");
-        lv_label_set_text_fmt(exit_label, "保存并退出 ");
+        lv_label_set_text_fmt(osd_format_label, "OSDåˆ¶å¼");
+        lv_label_set_text_fmt(language_label, "ç³»ç»Ÿè¯­è¨€ ");
+        lv_label_set_text_fmt(signal_source_label, "è¾“å‡ºä¿¡å·æº ");
+        lv_label_set_text_fmt(diversity_mode_label, "åˆ†é›†æ¨¡å¼ ");
+        lv_label_set_text_fmt(cpu_freq_label, "CPUé¢‘çŽ‡");
+        lv_label_set_text_fmt(gui_update_rate_label, "æ›´æ–°é¢‘çŽ‡");
+        lv_label_set_text_fmt(restore_defaults_label, "æ¢å¤é»˜è®¤å€¼");
+        lv_label_set_text_fmt(exit_label, "ä¿å­˜å¹¶é€€å‡º ");
         lv_label_set_text_fmt(osd_format_setup_label, (const char*)(&osd_format_label_text[osd_format_selid % 2]));
         lv_label_set_text_fmt(language_setup_label, (const char*)(&language_label_text[language_selid % 2]));
         lv_label_set_text_fmt(signal_source_setup_label, (const char*)(&signal_source_label_chinese_text[signal_source_selid % 4]));
@@ -880,37 +881,37 @@ void page_setup_create()
 
 
 
-    lv_amin_start(back_light_label, -100, 0, 1, 150, 0, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
-    lv_amin_start(led_strength_label, -100, 0, 1, 150, 50, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
-    lv_amin_start(fan_speed_label, -100, 0, 1, 150, 100, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
-    lv_amin_start(boot_animation_label, -100, 0, 1, 150, 150, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
-    lv_amin_start(beep_label, -100, 0, 1, 150, 200, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
+    lv_amin_start(back_light_label, -100, 0, 1, 150, 0, anim_set_x_cb, page_setup_anim_enter);
+    lv_amin_start(led_strength_label, -100, 0, 1, 150, 50, anim_set_x_cb, page_setup_anim_enter);
+    lv_amin_start(fan_speed_label, -100, 0, 1, 150, 100, anim_set_x_cb, page_setup_anim_enter);
+    lv_amin_start(boot_animation_label, -100, 0, 1, 150, 150, anim_set_x_cb, page_setup_anim_enter);
+    lv_amin_start(beep_label, -100, 0, 1, 150, 200, anim_set_x_cb, page_setup_anim_enter);
     #ifdef ELRS_BACKPACK_ENABLE
-    lv_amin_start(elrs_bind_button_label, -100, 0, 1, 150, 200, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
-    lv_amin_start(vtx_band_swap_label, -100, 0, 1, 150, 250, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
+    lv_amin_start(elrs_bind_button_label, -100, 0, 1, 150, 200, anim_set_x_cb, page_setup_anim_enter);
+    lv_amin_start(vtx_band_swap_label, -100, 0, 1, 150, 250, anim_set_x_cb, page_setup_anim_enter);
     #endif
-    lv_amin_start(osd_format_label, -100, 0, 1, 150, 300, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
-    lv_amin_start(language_label, -100, 0, 1, 150, 350, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
-    lv_amin_start(signal_source_label, -100, 0, 1, 150, 400, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
-    lv_amin_start(diversity_mode_label, -100, 0, 1, 150, 450, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
-    lv_amin_start(cpu_freq_label, -100, 0, 1, 150, 500, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
-    lv_amin_start(gui_update_rate_label, -100, 0, 1, 150, 550, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
-    lv_amin_start(restore_defaults_label, -100, 0, 1, 150, 600, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
-    lv_amin_start(exit_label, -100, 0, 1, 150, 650, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
+    lv_amin_start(osd_format_label, -100, 0, 1, 150, 300, anim_set_x_cb, page_setup_anim_enter);
+    lv_amin_start(language_label, -100, 0, 1, 150, 350, anim_set_x_cb, page_setup_anim_enter);
+    lv_amin_start(signal_source_label, -100, 0, 1, 150, 400, anim_set_x_cb, page_setup_anim_enter);
+    lv_amin_start(diversity_mode_label, -100, 0, 1, 150, 450, anim_set_x_cb, page_setup_anim_enter);
+    lv_amin_start(cpu_freq_label, -100, 0, 1, 150, 500, anim_set_x_cb, page_setup_anim_enter);
+    lv_amin_start(gui_update_rate_label, -100, 0, 1, 150, 550, anim_set_x_cb, page_setup_anim_enter);
+    lv_amin_start(restore_defaults_label, -100, 0, 1, 150, 600, anim_set_x_cb, page_setup_anim_enter);
+    lv_amin_start(exit_label, -100, 0, 1, 150, 650, anim_set_x_cb, page_setup_anim_enter);
 
-    lv_amin_start(back_light_bar, 160, 110, 1, 150, 0, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
-    lv_amin_start(led_strength_bar, 160, 110, 1, 150, 50, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
-    lv_amin_start(fan_speed_bar, 160, 110, 1, 150, 100, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
+    lv_amin_start(back_light_bar, 160, 110, 1, 150, 0, anim_set_x_cb, page_setup_anim_enter);
+    lv_amin_start(led_strength_bar, 160, 110, 1, 150, 50, anim_set_x_cb, page_setup_anim_enter);
+    lv_amin_start(fan_speed_bar, 160, 110, 1, 150, 100, anim_set_x_cb, page_setup_anim_enter);
     #ifdef ELRS_BACKPACK_ENABLE
-    lv_amin_start(elrs_bind_button, 160, 75, 1, 150, 200, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
-    lv_amin_start(elrs_status_value, 160, 110, 1, 150, 200, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
+    lv_amin_start(elrs_bind_button, 160, 75, 1, 150, 200, anim_set_x_cb, page_setup_anim_enter);
+    lv_amin_start(elrs_status_value, 160, 110, 1, 150, 200, anim_set_x_cb, page_setup_anim_enter);
     #endif
-    lv_amin_start(beep_switch, 160, 110, 1, 150, 200, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
-    lv_amin_start(osd_format_setup_label, 160, 110, 1, 150, 300, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
-    lv_amin_start(language_setup_label, 160, 110, 1, 150, 350, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
-    lv_amin_start(signal_source_setup_label, 160, 110, 1, 150, 400, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
-    lv_amin_start(diversity_mode_setup_label, 160, 110, 1, 150, 450, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
-    lv_amin_start(cpu_freq_setup_label, 160, 110, 1, 150, 500, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
+    lv_amin_start(beep_switch, 160, 110, 1, 150, 200, anim_set_x_cb, page_setup_anim_enter);
+    lv_amin_start(osd_format_setup_label, 160, 110, 1, 150, 300, anim_set_x_cb, page_setup_anim_enter);
+    lv_amin_start(language_setup_label, 160, 110, 1, 150, 350, anim_set_x_cb, page_setup_anim_enter);
+    lv_amin_start(signal_source_setup_label, 160, 110, 1, 150, 400, anim_set_x_cb, page_setup_anim_enter);
+    lv_amin_start(diversity_mode_setup_label, 160, 110, 1, 150, 450, anim_set_x_cb, page_setup_anim_enter);
+    lv_amin_start(cpu_freq_setup_label, 160, 110, 1, 150, 500, anim_set_x_cb, page_setup_anim_enter);
     #ifdef ELRS_BACKPACK_ENABLE
     // Create timer for ELRS status updates (500ms interval)
     elrs_status_timer = lv_timer_create(elrs_status_update, 500, NULL);
@@ -921,37 +922,37 @@ void page_setup_create()
 
 static void page_setup_exit()
 {
-    lv_amin_start(back_light_label, lv_obj_get_x(back_light_label), -100, 1, 200, 0, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
-    lv_amin_start(led_strength_label, lv_obj_get_x(led_strength_label), -100, 1, 200, 50, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
-    lv_amin_start(fan_speed_label, lv_obj_get_x(fan_speed_label), -100, 1, 200, 100, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
-    lv_amin_start(boot_animation_label, lv_obj_get_x(boot_animation_label), -100, 1, 200, 150, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
-    lv_amin_start(beep_label, lv_obj_get_x(beep_label), -100, 1, 200, 200, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
+    lv_amin_start(back_light_label, lv_obj_get_x(back_light_label), -100, 1, 200, 0, anim_set_x_cb, page_setup_anim_leave);
+    lv_amin_start(led_strength_label, lv_obj_get_x(led_strength_label), -100, 1, 200, 50, anim_set_x_cb, page_setup_anim_leave);
+    lv_amin_start(fan_speed_label, lv_obj_get_x(fan_speed_label), -100, 1, 200, 100, anim_set_x_cb, page_setup_anim_leave);
+    lv_amin_start(boot_animation_label, lv_obj_get_x(boot_animation_label), -100, 1, 200, 150, anim_set_x_cb, page_setup_anim_leave);
+    lv_amin_start(beep_label, lv_obj_get_x(beep_label), -100, 1, 200, 200, anim_set_x_cb, page_setup_anim_leave);
     #ifdef ELRS_BACKPACK_ENABLE
-    lv_amin_start(elrs_bind_button_label, lv_obj_get_x(elrs_bind_button_label), -100, 1, 200, 200, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
-    lv_amin_start(vtx_band_swap_label, lv_obj_get_x(vtx_band_swap_label), -100, 1, 200, 250, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
+    lv_amin_start(elrs_bind_button_label, lv_obj_get_x(elrs_bind_button_label), -100, 1, 200, 200, anim_set_x_cb, page_setup_anim_leave);
+    lv_amin_start(vtx_band_swap_label, lv_obj_get_x(vtx_band_swap_label), -100, 1, 200, 250, anim_set_x_cb, page_setup_anim_leave);
     #endif
-    lv_amin_start(osd_format_label, lv_obj_get_x(osd_format_label), -100, 1, 200, 300, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
-    lv_amin_start(language_label, lv_obj_get_x(language_label), -100, 1, 200, 350, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
-    lv_amin_start(signal_source_label, lv_obj_get_x(signal_source_label), -100, 1, 200, 400, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
-    lv_amin_start(diversity_mode_label, lv_obj_get_x(diversity_mode_label), -100, 1, 200, 450, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
-    lv_amin_start(cpu_freq_label, lv_obj_get_x(cpu_freq_label), -100, 1, 200, 500, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
-    lv_amin_start(restore_defaults_label, lv_obj_get_x(restore_defaults_label), -100, 1, 200, 550, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
-    lv_amin_start(exit_label, lv_obj_get_x(exit_label), -100, 1, 200, 600, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
+    lv_amin_start(osd_format_label, lv_obj_get_x(osd_format_label), -100, 1, 200, 300, anim_set_x_cb, page_setup_anim_leave);
+    lv_amin_start(language_label, lv_obj_get_x(language_label), -100, 1, 200, 350, anim_set_x_cb, page_setup_anim_leave);
+    lv_amin_start(signal_source_label, lv_obj_get_x(signal_source_label), -100, 1, 200, 400, anim_set_x_cb, page_setup_anim_enter);
+    lv_amin_start(diversity_mode_label, lv_obj_get_x(diversity_mode_label), -100, 1, 200, 450, anim_set_x_cb, page_setup_anim_enter);
+    lv_amin_start(cpu_freq_label, lv_obj_get_x(cpu_freq_label), -100, 1, 200, 500, anim_set_x_cb, page_setup_anim_enter);
+    lv_amin_start(restore_defaults_label, lv_obj_get_x(restore_defaults_label), -100, 1, 200, 550, anim_set_x_cb, page_setup_anim_leave);
+    lv_amin_start(exit_label, lv_obj_get_x(exit_label), -100, 1, 200, 600, anim_set_x_cb, page_setup_anim_enter);
 
-    lv_amin_start(back_light_bar, lv_obj_get_x(back_light_bar), 160, 1, 200, 0, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
-    lv_amin_start(led_strength_bar, lv_obj_get_x(led_strength_bar), 160, 1, 200, 50, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
-    lv_amin_start(fan_speed_bar, lv_obj_get_x(fan_speed_bar), 160, 1, 200, 100, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
-    lv_amin_start(boot_animation_switch, lv_obj_get_x(boot_animation_switch), 160, 1, 200, 150, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
-    lv_amin_start(beep_switch, lv_obj_get_x(beep_switch), 160, 1, 200, 200, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
+    lv_amin_start(back_light_bar, lv_obj_get_x(back_light_bar), 160, 1, 200, 0, anim_set_x_cb, page_setup_anim_leave);
+    lv_amin_start(led_strength_bar, lv_obj_get_x(led_strength_bar), 160, 1, 200, 50, anim_set_x_cb, page_setup_anim_leave);
+    lv_amin_start(fan_speed_bar, lv_obj_get_x(fan_speed_bar), 160, 1, 200, 100, anim_set_x_cb, page_setup_anim_leave);
+    lv_amin_start(boot_animation_switch, lv_obj_get_x(boot_animation_switch), 160, 1, 200, 150, anim_set_x_cb, page_setup_anim_leave);
+    lv_amin_start(beep_switch, lv_obj_get_x(beep_switch), 160, 1, 200, 200, anim_set_x_cb, page_setup_anim_leave);
     #ifdef ELRS_BACKPACK_ENABLE
-    lv_amin_start(elrs_bind_button, lv_obj_get_x(elrs_bind_button), 160, 1, 200, 200, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
-    lv_amin_start(elrs_status_value, lv_obj_get_x(elrs_status_value), 160, 1, 200, 200, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_leave);
+    lv_amin_start(elrs_bind_button, lv_obj_get_x(elrs_bind_button), 160, 1, 200, 200, anim_set_x_cb, page_setup_anim_leave);
+    lv_amin_start(elrs_status_value, lv_obj_get_x(elrs_status_value), 160, 1, 200, 200, anim_set_x_cb, page_setup_anim_leave);
     #endif
-    lv_amin_start(osd_format_setup_label, lv_obj_get_x(osd_format_setup_label), 160, 1, 200, 300, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
-    lv_amin_start(language_setup_label, lv_obj_get_x(language_setup_label), 160, 1, 200, 350, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
-    lv_amin_start(signal_source_setup_label, lv_obj_get_x(signal_source_setup_label), 160, 1, 200, 400, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
-    lv_amin_start(diversity_mode_setup_label, lv_obj_get_x(diversity_mode_setup_label), 160, 1, 200, 450, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
-    lv_amin_start(cpu_freq_setup_label, lv_obj_get_x(cpu_freq_setup_label), 160, 1, 200, 450, (lv_anim_exec_xcb_t)lv_obj_set_x, page_setup_anim_enter);
+    lv_amin_start(osd_format_setup_label, lv_obj_get_x(osd_format_setup_label), 160, 1, 200, 300, anim_set_x_cb, page_setup_anim_enter);
+    lv_amin_start(language_setup_label, lv_obj_get_x(language_setup_label), 160, 1, 200, 350, anim_set_x_cb, page_setup_anim_enter);
+    lv_amin_start(signal_source_setup_label, lv_obj_get_x(signal_source_setup_label), 160, 1, 200, 400, anim_set_x_cb, page_setup_anim_enter);
+    lv_amin_start(diversity_mode_setup_label, lv_obj_get_x(diversity_mode_setup_label), 160, 1, 200, 450, anim_set_x_cb, page_setup_anim_enter);
+    lv_amin_start(cpu_freq_setup_label, lv_obj_get_x(cpu_freq_setup_label), 160, 1, 200, 450, anim_set_x_cb, page_setup_anim_enter);
 
     #ifdef ELRS_BACKPACK_ENABLE
     // Stop and delete ELRS status timer on exit

@@ -124,16 +124,16 @@ void RX5808_RSSI_ADC_Init()
      esp_err_t ret;
     ret = esp_adc_cal_check_efuse(ESP_ADC_CAL_VAL_EFUSE_VREF);
     if (ret == ESP_OK) {
-        esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN_DB_11, ADC_WIDTH_BIT_DEFAULT, 0, &adc1_chars);
+        esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN_DB_12, ADC_WIDTH_BIT_DEFAULT, 0, &adc1_chars);
     } else {
         printf("adc calib failed!\n");
     }
     adc_set_clk_div(1);
     adc1_config_width(ADC_WIDTH_BIT_12);
-    adc1_config_channel_atten(RX5808_RSSI0_CHAN, ADC_ATTEN_DB_11);
-	adc1_config_channel_atten(RX5808_RSSI1_CHAN, ADC_ATTEN_DB_11);
-	adc1_config_channel_atten(VBAT_ADC_CHAN, ADC_ATTEN_DB_11);
-	adc1_config_channel_atten(KEY_ADC_CHAN, ADC_ATTEN_DB_11);
+    adc1_config_channel_atten(RX5808_RSSI0_CHAN, ADC_ATTEN_DB_12);
+	adc1_config_channel_atten(RX5808_RSSI1_CHAN, ADC_ATTEN_DB_12);
+	adc1_config_channel_atten(VBAT_ADC_CHAN, ADC_ATTEN_DB_12);
+	adc1_config_channel_atten(KEY_ADC_CHAN, ADC_ATTEN_DB_12);
 
 
     // adc_digi_init_config_t adc_dma_config = {
@@ -438,7 +438,6 @@ void RX5808_Set_GUI_Update_Rate(uint16_t value)
 {
     if (value > 5) value = 1;  // Default to 70ms if invalid
     Rx5808_GUI_Update_Rate = value;
-    const uint16_t rates_ms[] = {100, 70, 50, 40, 20, 10};
     const char* rates_str[] = {"10Hz/100ms", "14Hz/70ms", "20Hz/50ms", "25Hz/40ms", "50Hz/20ms", "100Hz/10ms"};
     ESP_LOGI(TAG, "GUI/Diversity Update Rate set to: %s", rates_str[value]);
 }

@@ -14,7 +14,6 @@ static lv_obj_t* rssi_label_a;
 static lv_obj_t* rssi_label_b;
 static lv_obj_t* peak_label_a;
 static lv_obj_t* peak_label_b;
-static lv_obj_t* instruction_label;
 static lv_obj_t* exit_button;
 static lv_group_t* finder_group;
 static lv_timer_t* update_timer;

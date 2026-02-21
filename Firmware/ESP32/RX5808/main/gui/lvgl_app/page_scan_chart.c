@@ -7,6 +7,7 @@
 #include "lvgl_stl.h"
 #include "beep.h"
 #include "led.h"
+#include "lv_anim_helpers.h"
 
 #define page_scan_chart_anim_enter  lv_anim_path_bounce
 #define page_scan_chart_anim_leave  lv_anim_path_bounce
@@ -91,8 +92,8 @@ static void page_scan_event_callback(lv_event_t* event)
 
 static void page_scan_chart_exit()
 {
-    lv_amin_start(rssi_quality_chart, lv_obj_get_y(rssi_quality_chart), -60, 1, 500, 0, (lv_anim_exec_xcb_t)lv_obj_set_y, page_scan_chart_anim_leave);
-    lv_amin_start(chart_fre_label, lv_obj_get_y(chart_fre_label), 80, 1, 200, 300, (lv_anim_exec_xcb_t)lv_obj_set_y, page_scan_chart_anim_leave);
+    lv_amin_start(rssi_quality_chart, lv_obj_get_y(rssi_quality_chart), -60, 1, 500, 0, anim_set_y_cb, page_scan_chart_anim_leave);
+    lv_amin_start(chart_fre_label, lv_obj_get_y(chart_fre_label), 80, 1, 200, 300, anim_set_y_cb, page_scan_chart_anim_leave);
     if (time_repeat_count < 47)
     {
         lv_timer_del(scan_chart_timer);
@@ -174,7 +175,7 @@ static void show_switch_confirmation(void)
     }
     else
     {
-        lv_label_set_text(title_label, "切换频道?");
+        lv_label_set_text(title_label, "åˆ‡æ¢é¢‘é“?");
     }
     lv_obj_align(title_label, LV_ALIGN_TOP_MID, 0, 5);
     
@@ -198,7 +199,7 @@ static void show_switch_confirmation(void)
     }
     else
     {
-        lv_label_set_text_fmt(rssi_label, "信号: %d%%", rssi_percent);
+        lv_label_set_text_fmt(rssi_label, "ä¿¡å·: %d%%", rssi_percent);
     }
     lv_obj_align(rssi_label, LV_ALIGN_CENTER, 0, 10);
     
@@ -212,7 +213,7 @@ static void show_switch_confirmation(void)
     }
     else
     {
-        lv_label_set_text(instr_label, "确认=是  返回=否");
+        lv_label_set_text(instr_label, "ç¡®è®¤=æ˜¯  è¿”å›ž=å¦");
     }
     lv_obj_align(instr_label, LV_ALIGN_BOTTOM_MID, 0, -5);
     
@@ -306,8 +307,8 @@ void page_scan_chart_create()
     scan_chart_timer = lv_timer_create(page_scan_chart_timer_event, scan_turn_time, NULL);
     lv_timer_set_repeat_count(scan_chart_timer, 48);
 
-    lv_amin_start(rssi_quality_chart, -60, 5, 1, 500, 0, (lv_anim_exec_xcb_t)lv_obj_set_y, page_scan_chart_anim_enter);
-    lv_amin_start(chart_fre_label, 80, 68, 1, 200, 300, (lv_anim_exec_xcb_t)lv_obj_set_y, page_scan_chart_anim_enter);
+    lv_amin_start(rssi_quality_chart, -60, 5, 1, 500, 0, anim_set_y_cb, page_scan_chart_anim_enter);
+    lv_amin_start(chart_fre_label, 80, 68, 1, 200, 300, anim_set_y_cb, page_scan_chart_anim_enter);
 
 }
 

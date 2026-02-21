@@ -2,9 +2,10 @@
 #include "page_main.h"
 #include "lvgl_stl.h"
 #include "hwvers.h"
+#include "lv_anim_helpers.h"
 
-//信号质量背光亮度开机动画蜂鸣器打关闭语言中文输出源保存并退出供电压界面版本源协议固件扫描中图传始校准成功失败启设置最大功率过小请重试屏幕系统自接收频谱道结果已安装天线风扇转速制式，
-//接收机设置关于分集扫描中结束模拟 0x21,0x2d,0x2e
+//ä¿¡å·è´¨é‡èƒŒå…‰äº®åº¦å¼€æœºåŠ¨ç”»èœ‚é¸£å™¨æ‰“å…³é—­è¯­è¨€ä¸­æ–‡è¾“å‡ºæºä¿å­˜å¹¶é€€å‡ºä¾›ç”µåŽ‹ç•Œé¢ç‰ˆæœ¬æºåè®®å›ºä»¶æ‰«æä¸­å›¾ä¼ å§‹æ ¡å‡†æˆåŠŸå¤±è´¥å¯è®¾ç½®æœ€å¤§åŠŸçŽ‡è¿‡å°è¯·é‡è¯•å±å¹•ç³»ç»Ÿè‡ªæŽ¥æ”¶é¢‘è°±é“ç»“æžœå·²å®‰è£…å¤©çº¿é£Žæ‰‡è½¬é€Ÿåˆ¶å¼ï¼Œ
+//æŽ¥æ”¶æœºè®¾ç½®å…³äºŽåˆ†é›†æ‰«æä¸­ç»“æŸæ¨¡æ‹Ÿ 0x21,0x2d,0x2e
 
 LV_FONT_DECLARE(lv_font_start);
 
@@ -48,9 +49,9 @@ void page_start_create()
         lv_label_set_text_fmt(version_label, "v%d.%d.%d", 
             RX5808_VERSION_MAJOR, RX5808_VERSION_MINOR, RX5808_VERSION_PATCH);
 
-        lv_amin_start(start_info_label, -50, 20, 1, 800, 0, (lv_anim_exec_xcb_t)lv_obj_set_y, lv_anim_path_linear);
-        lv_amin_start(start_info_bar, 0, 100, 1, 500, 800, (lv_anim_exec_xcb_t)lv_obj_opa_cb, lv_anim_path_linear);
-        lv_amin_start(start_info_bar, 0, 100, 1, 1500, 1000, (lv_anim_exec_xcb_t)lv_bar_set_value, lv_anim_path_linear);
+        lv_amin_start(start_info_label, -50, 20, 1, 800, 0, anim_set_y_cb, lv_anim_path_linear);
+        lv_amin_start(start_info_bar, 0, 100, 1, 500, 800, anim_opa_cb, lv_anim_path_linear);
+        lv_amin_start(start_info_bar, 0, 100, 1, 1500, 1000, anim_bar_value_cb, lv_anim_path_linear);
 
         lv_fun_delayed(page_start_exit, 3000);
     }

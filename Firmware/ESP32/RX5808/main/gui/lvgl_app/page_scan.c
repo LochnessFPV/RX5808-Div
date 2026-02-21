@@ -9,6 +9,7 @@
 #include "lvgl_stl.h"
 #include "rx5808.h"
 #include "beep.h"
+#include "lv_anim_helpers.h"
 
 LV_FONT_DECLARE(lv_font_chinese_12);
 
@@ -96,9 +97,9 @@ static void page_scan_callback(lv_event_t* event)
 
 static void page_scan_exit()
 {
-    lv_amin_start(chart_label, 0, 160, 1, 500, 0, (lv_anim_exec_xcb_t)lv_obj_set_x, page_scan_anim_leave);
-    lv_amin_start(table_label, lv_obj_get_style_opa(table_label, LV_PART_MAIN), 0, 1, 500, 0, (lv_anim_exec_xcb_t)lv_obj_opa_cb, page_scan_anim_leave);
-    lv_amin_start(calib_label, 0, -160, 1, 500, 0, (lv_anim_exec_xcb_t)lv_obj_set_x, page_scan_anim_leave);
+    lv_amin_start(chart_label, 0, 160, 1, 500, 0, anim_set_x_cb, page_scan_anim_leave);
+    lv_amin_start(table_label, lv_obj_get_style_opa(table_label, LV_PART_MAIN), 0, 1, 500, 0, anim_opa_cb, page_scan_anim_leave);
+    lv_amin_start(calib_label, 0, -160, 1, 500, 0, anim_set_x_cb, page_scan_anim_leave);
 
     lv_group_del(scan_group);
     lv_obj_del_delayed(menu_scan_contain, 500);
@@ -107,7 +108,7 @@ static void page_scan_exit()
 void page_scan_create_mode(scan_menu_mode_t mode)
 {
     scan_menu_mode = mode;
-    // 解锁并输出OSD时，适配灰度的OSD
+    // è§£é”å¹¶è¾“å‡ºOSDæ—¶ï¼Œé€‚é…ç°åº¦çš„OSD
     lv_color_t label_bg_color = lock_flag?lv_color_black():LABEL_DEFAULT_COLOR;
     lv_color_t label_focuse_bg_color = lock_flag?lv_color_make(0, 0, 0):LABEL_FOCUSE_COLOR;
     lv_color_t label_text_color = lock_flag?lv_color_white():lv_color_black();
@@ -186,17 +187,17 @@ void page_scan_create_mode(scan_menu_mode_t mode)
         lv_obj_set_style_text_font(calib_label, &lv_font_chinese_12, LV_STATE_DEFAULT);
 
         if (scan_menu_mode == scan_menu_mode_spectrum) {
-            lv_label_set_text_fmt(chart_label, "  频谱分析器  ");
-            lv_label_set_text_fmt(table_label, "  频谱扫描  ");
+            lv_label_set_text_fmt(chart_label, "  é¢‘è°±åˆ†æžå™¨  ");
+            lv_label_set_text_fmt(table_label, "  é¢‘è°±æ‰«æ  ");
             lv_obj_add_flag(calib_label, LV_OBJ_FLAG_HIDDEN);
         } else if (scan_menu_mode == scan_menu_mode_calib) {
-            lv_label_set_text_fmt(chart_label, "  分集校准  ");
-            lv_label_set_text_fmt(table_label, "  信号校准  ");
+            lv_label_set_text_fmt(chart_label, "  åˆ†é›†æ ¡å‡†  ");
+            lv_label_set_text_fmt(table_label, "  ä¿¡å·æ ¡å‡†  ");
             lv_obj_add_flag(calib_label, LV_OBJ_FLAG_HIDDEN);
         } else {
-            lv_label_set_text_fmt(chart_label, "  频谱扫描  ");
-            lv_label_set_text_fmt(table_label, "  频道扫描  ");
-            lv_label_set_text_fmt(calib_label, "  信号校准  ");
+            lv_label_set_text_fmt(chart_label, "  é¢‘è°±æ‰«æ  ");
+            lv_label_set_text_fmt(table_label, "  é¢‘é“æ‰«æ  ");
+            lv_label_set_text_fmt(calib_label, "  ä¿¡å·æ ¡å‡†  ");
             lv_obj_clear_flag(calib_label, LV_OBJ_FLAG_HIDDEN);
         }
     }
@@ -218,9 +219,9 @@ void page_scan_create_mode(scan_menu_mode_t mode)
     lv_group_set_editing(scan_group, true);
 
 
-    lv_amin_start(chart_label, -160, 0, 1, 500, 0, (lv_anim_exec_xcb_t)lv_obj_set_x, page_scan_anim_enter);
-    lv_amin_start(table_label, 0, 255, 1, 500, 0, (lv_anim_exec_xcb_t)lv_obj_opa_cb, page_scan_anim_enter);
-    lv_amin_start(calib_label, 160, 0, 1, 500, 0, (lv_anim_exec_xcb_t)lv_obj_set_x, page_scan_anim_enter);
+    lv_amin_start(chart_label, -160, 0, 1, 500, 0, anim_set_x_cb, page_scan_anim_enter);
+    lv_amin_start(table_label, 0, 255, 1, 500, 0, anim_opa_cb, page_scan_anim_enter);
+    lv_amin_start(calib_label, 160, 0, 1, 500, 0, anim_set_x_cb, page_scan_anim_enter);
 
 }
 
