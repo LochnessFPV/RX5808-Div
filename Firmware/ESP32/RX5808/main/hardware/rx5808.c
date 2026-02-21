@@ -733,6 +733,17 @@ void RX5808_Clear_Backpack_Detection(void)
 void RX5808_Init_Band_X(void)
 {
 	if (!Band_X_Loaded) {
+		// NVS flash must be initialized before any nvs_open() call.
+		// nvs_flash_init() is idempotent: safe to call multiple times.
+		// If the NVS partition is full or has a version mismatch, erase and reinit.
+		esp_err_t ret = nvs_flash_init();
+		if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+			ESP_LOGW(TAG, "NVS partition problem (%s), erasing and reinitialising", esp_err_to_name(ret));
+			ESP_ERROR_CHECK(nvs_flash_erase());
+			ret = nvs_flash_init();
+		}
+		ESP_ERROR_CHECK(ret);
+
 		RX5808_Load_Band_X_From_NVS();
 		Band_X_Loaded = true;
 		ESP_LOGI(TAG, "Band X initialized");
@@ -779,13 +790,8 @@ uint16_t RX5808_Get_Band_X_Freq(uint8_t channel)
  */
 void RX5808_Save_Band_X_To_NVS(void)
 {
-	// Initialize NVS if not already done
-	esp_err_t ret = nvs_flash_init();
-	if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-		ESP_ERROR_CHECK(nvs_flash_erase());
-		ret = nvs_flash_init();
-	}
-	
+	// NVS flash is guaranteed to be initialised by RX5808_Init_Band_X() on boot.
+	// Do NOT call nvs_flash_init()/nvs_flash_erase() here — that would wipe all NVS data.
 	nvs_handle_t nvs_handle;
 	esp_err_t err = nvs_open(NVS_NAMESPACE_BANDX, NVS_READWRITE, &nvs_handle);
 	
