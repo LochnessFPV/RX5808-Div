@@ -1,7 +1,31 @@
 #include "fan.h"
 #include "driver/ledc.h"
 #include "hwvers.h"
-volatile uint8_t fan_speed=100;
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "esp_log.h"
+#include <stdint.h>
+
+static const char* TAG_FAN = "FAN";
+
+// User-configured floor speed (saved to EEPROM, returned by fan_get_speed)
+volatile uint8_t fan_speed = 100;
+
+// Actual PWM duty currently applied (thermal may push above user floor)
+static volatile uint8_t fan_speed_actual = 100;
+
+// Last die temperature reading (degrees C)
+static volatile float thermal_temp_c = 25.0f;
+
+// ESP32 ROM die temperature sensor — returns raw Fahrenheit value
+extern uint8_t temprature_sens_read(void);
+
+// Thermal fan curve thresholds (die temp runs ~10-15 C above ambient)
+#define THERMAL_TEMP_IDLE   48.0f
+#define THERMAL_TEMP_FULL   68.0f
+#define THERMAL_TEMP_WARN   73.0f
+#define THERMAL_FAN_MIN_PCT 35
+
 
 void fan_Init(void)
 {
@@ -38,19 +62,81 @@ void fan_Init(void)
 
 void fan_set_speed(uint8_t duty)
 {
-        if(duty>100)
-        duty=100;
-
-		fan_speed=duty;
-
-        int fan_duty=(int)(duty*81.91f);
-
+    if (duty > 100) duty = 100;
+    fan_speed = duty;  // update user floor (persisted to EEPROM)
+    // Apply immediately only when not already running hotter from thermal
+    if (duty >= fan_speed_actual) {
+        fan_speed_actual = duty;
+        int fan_duty = (int)(duty * 81.91f);
         ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, fan_duty);
-		ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
-		//ledc_timer_resume(LEDC_LOW_SPEED_MODE, LEDC_TIMER_1);
+        ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
+    }
+    // If thermal is currently higher, leave it; next 5-s poll re-evaluates
 }
 
-uint16_t fan_get_speed()
+uint16_t fan_get_speed(void)
 {
-        return (uint16_t)fan_speed;
+    return (uint16_t)fan_speed;  // return user floor for EEPROM save
+}
+
+// --- Thermal control ---
+
+static void fan_set_pwm(uint8_t duty)
+{
+    if (duty > 100) duty = 100;
+    fan_speed_actual = duty;
+    int fan_duty = (int)(duty * 81.91f);
+    ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, fan_duty);
+    ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
+}
+
+static uint8_t thermal_curve(float temp_c)
+{
+    if (temp_c < THERMAL_TEMP_IDLE) return THERMAL_FAN_MIN_PCT;
+    if (temp_c >= THERMAL_TEMP_FULL) return 100;
+    float ratio = (temp_c - THERMAL_TEMP_IDLE) / (THERMAL_TEMP_FULL - THERMAL_TEMP_IDLE);
+    return (uint8_t)(THERMAL_FAN_MIN_PCT + ratio * (100.0f - THERMAL_FAN_MIN_PCT));
+}
+
+static void thermal_task(void* param)
+{
+    // Discard the first 2 readings — the ESP32 die sensor is unreliable
+    // until the ADC stabilises after power-on (~2 s)
+    vTaskDelay(pdMS_TO_TICKS(2000));
+    temprature_sens_read();
+    vTaskDelay(pdMS_TO_TICKS(500));
+    temprature_sens_read();
+    vTaskDelay(pdMS_TO_TICKS(500));
+
+    while (1) {
+        // temprature_sens_read() returns degrees Fahrenheit (ESP32 ROM)
+        uint8_t raw_f = temprature_sens_read();
+        float temp_c  = ((float)raw_f - 32.0f) / 1.8f;
+        thermal_temp_c = temp_c;
+
+        uint8_t thermal = thermal_curve(temp_c);
+        uint8_t target  = (thermal > fan_speed) ? thermal : fan_speed;
+
+        if (target != fan_speed_actual) {
+            ESP_LOGD(TAG_FAN, "Thermal: %.1fC -> fan %d%%", temp_c, target);
+            fan_set_pwm(target);
+        }
+
+        if (temp_c >= THERMAL_TEMP_WARN) {
+            ESP_LOGW(TAG_FAN, "HIGH TEMP %.1fC - fan at 100%%", temp_c);
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(5000));
+    }
+}
+
+void thermal_control_init(void)
+{
+    xTaskCreate(thermal_task, "thermal", 3072, NULL, 1, NULL);
+    ESP_LOGI(TAG_FAN, "Thermal fan control started");
+}
+
+float thermal_get_temp_c(void)
+{
+    return thermal_temp_c;
 }

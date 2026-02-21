@@ -77,6 +77,9 @@ void rx5808_div_setup_load()
 		RX5808_Set_RSSI_Ad_Max1(rx5808_div_setup[rx5808_div_config_rssi_adc_value_max1]);
 		RX5808_Set_OSD_Format(rx5808_div_setup[rx5808_div_config_osd_format]);
 		RX5808_Set_Language(rx5808_div_setup[rx5808_div_config_language_set]);
+		// Guard against NVS corruption — clamp signal source to valid range [0-3]
+		if (rx5808_div_setup[rx5808_div_config_signal_source] > 3)
+			rx5808_div_setup[rx5808_div_config_signal_source] = SIGNAL_SOURCE_DEFAULT;
 		RX5808_Set_Signal_Source(rx5808_div_setup[rx5808_div_config_signal_source]);
 		RX5808_Set_LED_Brightness(rx5808_div_setup[rx5808_div_config_led_brightness]);
 		// ELRS backpack removed - initialized separately in system.c

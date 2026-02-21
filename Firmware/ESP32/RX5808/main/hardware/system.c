@@ -26,6 +26,9 @@
 
 static const char *TAG = "SYSTEM";
 
+// LVGL task delay: 20ms (50Hz) active, 50ms (20Hz) when locked/idle
+volatile uint8_t system_lvgl_sleep_ms = 20;
+
 
 void create_cpu_stack_monitor_task();
 void cpu_stack_monitor_task(void *param);
@@ -145,6 +148,7 @@ void system_init(void)
 	printf("lcd init success!\n");
 	fan_Init();	
 	printf("fan init success!\n");
+	thermal_control_init();
  	eeprom_24cxx_init();	
 	printf("24cxx init success!\n");
  	rx5808_div_setup_load();
@@ -223,6 +227,36 @@ void cpu_stack_monitor_task(void *param)
 		vTaskDelay(3000/portTICK_PERIOD_MS);
 	}
 
+}
+
+// --- LVGL idle rate control ---
+
+void system_set_lvgl_idle(bool idle)
+{
+    system_lvgl_sleep_ms = idle ? 50 : 20;
+    ESP_LOGD(TAG, "LVGL sleep: %dms", system_lvgl_sleep_ms);
+}
+
+// --- CPU power context control ---
+
+void system_set_cpu_context_idle(bool idle)
+{
+#ifdef CONFIG_PM_ENABLE
+    if (idle) {
+        // Locked/idle: cap at 80 MHz to save power/heat
+        esp_pm_config_esp32_t pm = {
+            .max_freq_mhz      = 80,
+            .min_freq_mhz      = 80,
+            .light_sleep_enable = false
+        };
+        esp_pm_configure(&pm);
+        ESP_LOGD(TAG, "CPU context: IDLE (80 MHz)");
+    } else {
+        // Active: restore user-configured frequency
+        system_apply_cpu_freq(RX5808_Get_CPU_Freq());
+        ESP_LOGD(TAG, "CPU context: ACTIVE (user freq)");
+    }
+#endif
 }
 
 /*

@@ -16,6 +16,7 @@
 #include "lv_port_disp.h"
 #include <stdlib.h>
 #include <inttypes.h>
+#include "system.h"
 #include "beep.h"
 #include "lv_port_disp.h"
 #include "diversity.h"
@@ -360,6 +361,9 @@ static void event_callback(lv_event_t* event)
         }
         video_composite_switch(!lock_flag);
         video_composite_sync_switch(!lock_flag);
+        // Item 4: slow LVGL refresh + Item 2: lower CPU when locked
+        system_set_lvgl_idle(!lock_flag);
+        system_set_cpu_context_idle(!lock_flag);
     }
 }
 
@@ -852,6 +856,9 @@ void page_main_create()
     } else {
         led_set_pattern(LED_PATTERN_HEARTBEAT);  // Unlocked: Heartbeat
     }
+    // Apply initial power context based on lock state
+    system_set_lvgl_idle(!lock_flag);
+    system_set_cpu_context_idle(!lock_flag);
     
     // Initialize navigation module with lock state
     navigation_init(&lock_flag);
@@ -992,6 +999,8 @@ static void page_main_group_create()
 static void page_main_exit()
 {
     page_main_active = false;  // Mark page as inactive to prevent callbacks
+    system_set_lvgl_idle(false);
+    system_set_cpu_context_idle(false);
     
     // Clean up Band X frequency edit mode if active
     if (band_x_freq_edit_mode) {
