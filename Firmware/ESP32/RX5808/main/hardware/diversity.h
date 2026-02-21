@@ -130,10 +130,12 @@ void diversity_update(void); // Call at DIVERSITY_SAMPLE_RATE_HZ
 diversity_rx_t diversity_get_active_rx(void);
 diversity_state_t* diversity_get_state(void);
 
-// RSSI calibration
-bool diversity_calibrate_start(diversity_rx_t rx);
-bool diversity_calibrate_floor(diversity_rx_t rx, uint16_t* result);
-bool diversity_calibrate_peak(diversity_rx_t rx, uint16_t* result);
+// RSSI calibration — incremental (non-blocking) API
+#define DIVERSITY_CALIB_SAMPLES 50          // 50 ticks × 50ms = 2.5 s total
+void diversity_calibrate_floor_sample(diversity_rx_t rx, uint16_t* buf, int index);
+bool diversity_calibrate_floor_finish(uint16_t* buf, int count, uint16_t* result);
+void diversity_calibrate_peak_sample(diversity_rx_t rx, uint16_t* buf, int index);
+bool diversity_calibrate_peak_finish(uint16_t* buf, int count, uint16_t* result);
 bool diversity_calibrate_save(void);
 void diversity_calibrate_load(void);
 

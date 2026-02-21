@@ -523,13 +523,13 @@ void diversity_calibrate_load(void) {
     }
     
     // Validate calibration
-    if (g_diversity_state.cal_a.peak_raw > g_diversity_state.cal_a.floor_raw + 100) {
+    if (g_diversity_state.cal_a.peak_raw > g_diversity_state.cal_a.floor_raw + 50) {
         g_diversity_state.cal_a.calibrated = true;
         ESP_LOGI(TAG, "RX A calibration loaded: floor=%d peak=%d",
                  g_diversity_state.cal_a.floor_raw, g_diversity_state.cal_a.peak_raw);
     }
     
-    if (g_diversity_state.cal_b.peak_raw > g_diversity_state.cal_b.floor_raw + 100) {
+    if (g_diversity_state.cal_b.peak_raw > g_diversity_state.cal_b.floor_raw + 50) {
         g_diversity_state.cal_b.calibrated = true;
         ESP_LOGI(TAG, "RX B calibration loaded: floor=%d peak=%d",
                  g_diversity_state.cal_b.floor_raw, g_diversity_state.cal_b.peak_raw);
@@ -539,122 +539,66 @@ void diversity_calibrate_load(void) {
 }
 
 /**
- * @brief Start calibration process (prepare receiver)
+ * @brief Add one floor sample (call once per timer tick, non-blocking)
+ *
+ * Collects ADC samples incrementally so the LVGL task never blocks.
+ * Call diversity_calibrate_floor_finish() after DIVERSITY_CALIB_SAMPLES ticks.
  */
-bool diversity_calibrate_start(diversity_rx_t rx) {
-    ESP_LOGI(TAG, "Starting calibration for RX_%c", rx == DIVERSITY_RX_A ? 'A' : 'B');
-    return true;
+void diversity_calibrate_floor_sample(diversity_rx_t rx, uint16_t* buf, int index) {
+    buf[index] = (rx == DIVERSITY_RX_A) ? adc_converted_value[0] : adc_converted_value[1];
 }
 
 /**
- * @brief Calibrate noise floor (no signal) using Median + MAD
- * 
- * Algorithm: Median-based robust estimation with MAD outlier rejection
- * - Collect 100 samples over 2 seconds
- * - Calculate median (robust central tendency)
- * - Calculate MAD (Median Absolute Deviation) for outlier rejection
- * - Apply 10% margin above median for safety
- * 
- * This approach achieves >95% accuracy vs simple averaging (~70-80%)
+ * @brief Compute floor result from filled sample buffer
+ *
+ * Algorithm: median + 8% fixed margin (robust, no MAD complexity needed
+ * given ESP32 ADC noise floor is already larger than MAD precision).
  */
-bool diversity_calibrate_floor(diversity_rx_t rx, uint16_t* result) {
-    const int samples = 100; // 2 seconds at 50Hz (prevents timer exhaustion)
-    uint32_t sum = 0;
-    uint16_t values[samples];
-    uint16_t deviations[samples];
-    
-    ESP_LOGI(TAG, "Calibrating floor for RX_%c - remove antennas", 
-             rx == DIVERSITY_RX_A ? 'A' : 'B');
-    
-    // Sample for 2 seconds
-    for (int i = 0; i < samples; i++) {
-        if (rx == DIVERSITY_RX_A) {
-            values[i] = adc_converted_value[0];
-        } else {
-            values[i] = adc_converted_value[1];
-        }
-        sum += values[i];
-        vTaskDelay(pdMS_TO_TICKS(20)); // 50Hz sampling (avoids timer overflow)
+bool diversity_calibrate_floor_finish(uint16_t* buf, int count, uint16_t* result) {
+    if (count <= 0) return false;
+
+    // Insertion sort (fine for <=50 samples)
+    for (int i = 1; i < count; i++) {
+        uint16_t key = buf[i];
+        int j = i - 1;
+        while (j >= 0 && buf[j] > key) { buf[j + 1] = buf[j]; j--; }
+        buf[j + 1] = key;
     }
-    
-    // Sort values to find median (bubble sort - simple and adequate for 500 samples)
-    for (int i = 0; i < samples - 1; i++) {
-        for (int j = i + 1; j < samples; j++) {
-            if (values[j] < values[i]) {
-                uint16_t temp = values[i];
-                values[i] = values[j];
-                values[j] = temp;
-            }
-        }
-    }
-    
-    // Calculate median
-    uint16_t median = values[samples / 2];
-    
-    // Calculate MAD (Median Absolute Deviation)
-    // MAD measures spread/variability robustly
-    for (int i = 0; i < samples; i++) {
-        deviations[i] = (values[i] > median) ? (values[i] - median) : (median - values[i]);
-    }
-    
-    // Sort deviations to find median deviation
-    for (int i = 0; i < samples - 1; i++) {
-        for (int j = i + 1; j < samples; j++) {
-            if (deviations[j] < deviations[i]) {
-                uint16_t temp = deviations[i];
-                deviations[i] = deviations[j];
-                deviations[j] = temp;
-            }
-        }
-    }
-    
-    uint16_t mad = deviations[samples / 2];
-    
-    // Set threshold: median + 10% margin
-    // This accounts for natural noise variation while rejecting outliers beyond 3*MAD
-    uint16_t margin = (median * 10) / 100;
+
+    uint16_t median = buf[count / 2];
+    uint16_t margin = (median * 8) / 100;
     *result = median + margin;
-    
-    ESP_LOGI(TAG, "Floor calibrated: median=%d, MAD=%d, margin=%d, result=%d (mean=%lu)", 
-             median, mad, margin, *result, sum / samples);
+
+    ESP_LOGI(TAG, "Floor finish: median=%d margin=%d result=%d", median, margin, *result);
     return true;
 }
 
 /**
- * @brief Calibrate signal peak (strong signal)
+ * @brief Add one peak sample (call once per timer tick, non-blocking)
  */
-bool diversity_calibrate_peak(diversity_rx_t rx, uint16_t* result) {
-    const int samples = 100; // 2 seconds at 50Hz
-    uint16_t values[samples];
-    
-    ESP_LOGI(TAG, "Calibrating peak for RX_%c - VTX close and powered", 
-             rx == DIVERSITY_RX_A ? 'A' : 'B');
-    
-    // Sample for 2 seconds
-    for (int i = 0; i < samples; i++) {
-        if (rx == DIVERSITY_RX_A) {
-            values[i] = adc_converted_value[0];
-        } else {
-            values[i] = adc_converted_value[1];
-        }
-        vTaskDelay(pdMS_TO_TICKS(20)); // 50Hz sampling
+void diversity_calibrate_peak_sample(diversity_rx_t rx, uint16_t* buf, int index) {
+    buf[index] = (rx == DIVERSITY_RX_A) ? adc_converted_value[0] : adc_converted_value[1];
+}
+
+/**
+ * @brief Compute peak result from filled sample buffer
+ *
+ * Uses 90th percentile — less sensitive to VTX distance variation than 95th.
+ */
+bool diversity_calibrate_peak_finish(uint16_t* buf, int count, uint16_t* result) {
+    if (count <= 0) return false;
+
+    // Insertion sort
+    for (int i = 1; i < count; i++) {
+        uint16_t key = buf[i];
+        int j = i - 1;
+        while (j >= 0 && buf[j] > key) { buf[j + 1] = buf[j]; j--; }
+        buf[j + 1] = key;
     }
-    
-    // Use 95th percentile to avoid spikes
-    // Sort array
-    for (int i = 0; i < samples - 1; i++) {
-        for (int j = i + 1; j < samples; j++) {
-            if (values[j] < values[i]) {
-                uint16_t temp = values[i];
-                values[i] = values[j];
-                values[j] = temp;
-            }
-        }
-    }
-    
-    *result = values[(samples * 95) / 100];
-    
-    ESP_LOGI(TAG, "Peak calibrated: %d", *result);
+
+    *result = buf[(count * 90) / 100];
+
+    ESP_LOGI(TAG, "Peak finish: 90th-pct=%d", *result);
     return true;
 }
 
