@@ -342,14 +342,16 @@ static uint32_t keypad_get_key(void)
 {
 
     key_raw = adc1_get_raw(KEY_ADC_CHAN);
-    //printf("KEY_ADC_V: %d\n",key_raw);
-    if(key_raw>3100&&key_raw<3500)
+    if(key_raw > 10 && key_raw < 4090) {  // suppress true idle (4095) and floating noise
+        printf("KEY_ADC_V: %d\n", key_raw);
+    }
+    if(key_raw>3000&&key_raw<3500)
         return LV_KEY_UP;
-    if(key_raw<2700&&key_raw>2400)
+    if(key_raw<2650&&key_raw>2400)   // DOWN center ~2457, dead zone 2650-2700
         return LV_KEY_DOWN;
     if(key_raw<500)
         return LV_KEY_LEFT;
-    if(key_raw<=3100&&key_raw>=2750)
+    if(key_raw<3000&&key_raw>2700)   // RIGHT center ~2800, well clear of DOWN
         return LV_KEY_RIGHT;
     if(key_raw<2200&&key_raw>1750)
         return LV_KEY_ENTER;

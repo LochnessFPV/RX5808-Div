@@ -620,6 +620,7 @@ static void spectrum_event_handler(lv_event_t* event)
             
         case LV_KEY_UP:
             // Zoom in (increase detail)
+            ESP_LOGI("SPEC", "UP zoom_level=%d", zoom_level);
             beep_turn_on();
             {
                 uint16_t cursor_freq = get_frequency_at_bin(cursor_position);
@@ -636,6 +637,7 @@ static void spectrum_event_handler(lv_event_t* event)
             
         case LV_KEY_DOWN:
             // Zoom out (wider view)
+            ESP_LOGI("SPEC", "DOWN zoom_level=%d", zoom_level);
             beep_turn_on();
             {
                 uint16_t cursor_freq = get_frequency_at_bin(cursor_position);
