@@ -85,7 +85,7 @@ static quick_menu_t* quick_menu = NULL;
 // Hold-LEFT tracking for locked quick menu (LV_EVENT_LONG_PRESSED never fires for directional keys)
 static uint32_t hold_left_start_time = 0;
 static bool hold_left_menu_opened = false;
-#define HOLD_LEFT_MENU_MS 2000  // ms to hold LEFT while locked to open quick menu
+#define HOLD_LEFT_MENU_MS 1500  // ms to hold LEFT while locked to open quick menu
 
 
 static void page_main_exit(void);

@@ -724,7 +724,7 @@ void page_spectrum_create(bool bandx_selection, uint8_t bandx_channel)
     bandx_status_label = lv_label_create(spectrum_contain);
     lv_obj_set_style_text_font(bandx_status_label, &lv_font_chinese_12, 0);
     lv_obj_set_style_text_color(bandx_status_label, lv_color_hex(0xFF00FF), 0);
-    lv_obj_align(bandx_status_label, LV_ALIGN_TOP_MID, 0, 2);
+    lv_obj_align(bandx_status_label, LV_ALIGN_TOP_MID, -20, 2);
     update_bandx_status();
     
     // Zoom indicator (top right)
