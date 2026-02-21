@@ -315,32 +315,24 @@ static void keypad_read(lv_indev_drv_t * indev_drv, lv_indev_data_t * data)
     //mouse_get_xy(&data->point.x, &data->point.y);
 
     /*Get whether the a key is pressed and save the pressed key*/
+    /* Release debounce: require 3 consecutive zero ADC reads before releasing.
+     * This bridges ADC noise gaps on narrow-window keys (e.g. RIGHT at 2800-3000)
+     * that would otherwise cause the LVGL keypad FSM to reset on every noisy tick. */
+    static uint8_t zero_streak = 0;
+
     uint32_t act_key = keypad_get_key();
     if(act_key != 0) {
+        zero_streak = 0;
         data->state = LV_INDEV_STATE_PR;
-
-        /*Translate the keys to LVGL control characters according to your key definitions*/
-        switch(act_key) {
-        case 1:
-            act_key = LV_KEY_NEXT;
-            break;
-        case 2:
-            act_key = LV_KEY_PREV;
-            break;
-        case 3:
-            act_key = LV_KEY_LEFT;
-            break;
-        case 4:
-            act_key = LV_KEY_RIGHT;
-            break;
-        case 5:
-            act_key = LV_KEY_ENTER;
-            break;
-        }
-
         last_key = act_key;
     } else {
-        data->state = LV_INDEV_STATE_REL;
+        zero_streak++;
+        if(zero_streak >= 3) {
+            data->state = LV_INDEV_STATE_REL;
+        } else {
+            /* ADC glitch — keep last key pressed to maintain LVGL long-press state */
+            data->state = (last_key != 0) ? LV_INDEV_STATE_PR : LV_INDEV_STATE_REL;
+        }
     }
 
     data->key = last_key;
@@ -351,13 +343,13 @@ static uint32_t keypad_get_key(void)
 
     key_raw = adc1_get_raw(KEY_ADC_CHAN);
     //printf("KEY_ADC_V: %d\n",key_raw);
-    if(key_raw>3000&&key_raw<3500)
+    if(key_raw>3100&&key_raw<3500)
         return LV_KEY_UP;
-    if(key_raw<2800&&key_raw>2400)
+    if(key_raw<2700&&key_raw>2400)
         return LV_KEY_DOWN;
     if(key_raw<500)
         return LV_KEY_LEFT;
-    if(key_raw<3000&&key_raw>2800)
+    if(key_raw<=3100&&key_raw>=2750)
         return LV_KEY_RIGHT;
     if(key_raw<2200&&key_raw>1750)
         return LV_KEY_ENTER;

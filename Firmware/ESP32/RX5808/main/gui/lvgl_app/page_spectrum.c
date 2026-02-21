@@ -14,6 +14,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
+#include "esp_log.h"
 
 LV_FONT_DECLARE(lv_font_chinese_12);
 
@@ -107,7 +108,9 @@ static uint8_t get_bin_at_frequency(uint16_t freq)
 {
     if (freq < view_freq_min) return 0;
     if (freq > view_freq_max) return SPECTRUM_BINS - 1;
-    return (freq - view_freq_min) / freq_step;
+    uint8_t bin = (freq - view_freq_min) / freq_step;
+    if (bin >= SPECTRUM_BINS) bin = SPECTRUM_BINS - 1;  // clamp: division can reach SPECTRUM_BINS for freqs near view_freq_max
+    return bin;
 }
 
 // Set zoom level and update view range
@@ -343,7 +346,7 @@ static void update_bars(void)
         // Update bar size
         lv_obj_set_height(bars[i], bar_h > 2 ? bar_h : 2);  // Minimum 2px
         lv_obj_align(bars[i], LV_ALIGN_BOTTOM_LEFT, 
-                     5 + i * (BAR_WIDTH + BAR_SPACING), -15);
+                     i * (BAR_WIDTH + BAR_SPACING), -15);
         
         // Color based on intensity
         lv_color_t bar_color;
@@ -370,9 +373,9 @@ static void update_bars(void)
 // Update cursor position
 static void update_cursor(void)
 {
-    int cursor_x = 5 + cursor_position * (BAR_WIDTH + BAR_SPACING) + BAR_WIDTH / 2;
-    lv_obj_set_x(cursor_marker, cursor_x);
-    
+    int cursor_x = cursor_position * (BAR_WIDTH + BAR_SPACING);
+    lv_obj_set_pos(cursor_marker, cursor_x, 14);
+
     // Update info display
     update_info_display();
 }
@@ -489,10 +492,18 @@ static void stop_scan(void)
 static void spectrum_event_handler(lv_event_t* event)
 {
     lv_event_code_t code = lv_event_get_code(event);
-    
+
     if (exit_pending) return;
-    
-    uint32_t key = lv_indev_get_key(lv_indev_get_act());
+
+    // Use lv_event_get_key for KEY events (canonical, reads from event data).
+    // Fall back to indev only for PRESSED/RELEASED (ENTER long-press detection).
+    uint32_t key;
+    if (code == LV_EVENT_KEY) {
+        key = lv_event_get_key(event);
+    } else {
+        lv_indev_t * act = lv_indev_get_act();
+        key = act ? lv_indev_get_key(act) : 0;
+    }
     
     // Handle ENTER key press and release for long press detection
     if (key == LV_KEY_ENTER) {
@@ -548,6 +559,8 @@ static void spectrum_event_handler(lv_event_t* event)
     if (is_nav_key) {
         uint32_t now = lv_tick_get();
         if (key == last_nav_key && (now - last_nav_tick) < 120) {
+            ESP_LOGI("SPEC", "THROTTLED key=%lu dt=%lu pos=%d",
+                     (unsigned long)key, (unsigned long)(now - last_nav_tick), cursor_position);
             return;
         }
         last_nav_key = key;
@@ -562,6 +575,10 @@ static void spectrum_event_handler(lv_event_t* event)
             break;
             
         case LV_KEY_LEFT:
+            ESP_LOGI("SPEC", "LEFT accepted  pos=%d->%d  tick=%lu last_tick=%lu diff=%lu",
+                     cursor_position, cursor_position > 0 ? cursor_position - 1 : 0,
+                     (unsigned long)lv_tick_get(), (unsigned long)last_nav_tick,
+                     (unsigned long)(lv_tick_get() - last_nav_tick));
             beep_turn_on();
             if (cursor_position > 0) {
                 cursor_position--;
@@ -580,6 +597,10 @@ static void spectrum_event_handler(lv_event_t* event)
             break;
             
         case LV_KEY_RIGHT:
+            ESP_LOGI("SPEC", "RIGHT accepted pos=%d->%d  tick=%lu last_tick=%lu diff=%lu",
+                     cursor_position, cursor_position < SPECTRUM_BINS - 1 ? cursor_position + 1 : cursor_position,
+                     (unsigned long)lv_tick_get(), (unsigned long)last_nav_tick,
+                     (unsigned long)(lv_tick_get() - last_nav_tick));
             beep_turn_on();
             if (cursor_position < SPECTRUM_BINS - 1) {
                 cursor_position++;
@@ -680,6 +701,15 @@ void page_spectrum_create(bool bandx_selection, uint8_t bandx_channel)
     last_enter_click = 0;  // Reset double-click timer
     last_nav_tick = 0;
     last_nav_key = 0;
+
+    // Always reset zoom to full view on entry — stale narrow/medium zoom from a
+    // previous session would clamp cursor_position to SPECTRUM_BINS-1 and make
+    // the RIGHT button appear broken.
+    zoom_level = ZOOM_FULL;
+    view_freq_min = FREQ_FULL_MIN;
+    view_freq_max = FREQ_FULL_MAX;
+    freq_step = (FREQ_FULL_MAX - FREQ_FULL_MIN) / SPECTRUM_BINS;
+    cursor_position = SPECTRUM_BINS / 2;  // Start centred, snapped to current freq later
     
     // Create container
     spectrum_contain = lv_obj_create(lv_scr_act());
@@ -714,7 +744,7 @@ void page_spectrum_create(bool bandx_selection, uint8_t bandx_channel)
         lv_obj_set_style_radius(bars[i], 0, 0);
         lv_obj_set_style_pad_all(bars[i], 0, 0);
         lv_obj_align(bars[i], LV_ALIGN_BOTTOM_LEFT, 
-                     5 + i * (BAR_WIDTH + BAR_SPACING), -15);
+                     i * (BAR_WIDTH + BAR_SPACING), -15);
         
         // Peak marker (1px line)
         peak_markers[i] = lv_obj_create(spectrum_contain);
@@ -723,17 +753,17 @@ void page_spectrum_create(bool bandx_selection, uint8_t bandx_channel)
         lv_obj_set_style_border_width(peak_markers[i], 0, 0);
         lv_obj_set_style_radius(peak_markers[i], 0, 0);
         lv_obj_set_style_pad_all(peak_markers[i], 0, 0);
-        lv_obj_set_pos(peak_markers[i], 5 + i * (BAR_WIDTH + BAR_SPACING), 60);
+        lv_obj_set_pos(peak_markers[i], i * (BAR_WIDTH + BAR_SPACING), 60);
     }
     
-    // Cursor marker (triangle pointing down)
+    // Cursor marker (rectangle over current bin)
     cursor_marker = lv_obj_create(spectrum_contain);
-    lv_obj_set_size(cursor_marker, 5, 3);
+    lv_obj_set_size(cursor_marker, BAR_WIDTH, 3);
     lv_obj_set_style_bg_color(cursor_marker, lv_color_hex(0xFFFF00), 0);
     lv_obj_set_style_border_width(cursor_marker, 0, 0);
     lv_obj_set_style_radius(cursor_marker, 0, 0);
-    lv_obj_align(cursor_marker, LV_ALIGN_TOP_LEFT, 
-                 5 + cursor_position * (BAR_WIDTH + BAR_SPACING) + BAR_WIDTH / 2, 14);
+    lv_obj_set_pos(cursor_marker,
+                   cursor_position * (BAR_WIDTH + BAR_SPACING), 14);
     
     // Info label (frequency and RSSI)
     info_label = lv_label_create(spectrum_contain);
@@ -770,9 +800,10 @@ void page_spectrum_create(bool bandx_selection, uint8_t bandx_channel)
     lv_obj_add_event_cb(spectrum_contain, spectrum_event_handler, LV_EVENT_PRESSED, NULL);
     lv_obj_add_event_cb(spectrum_contain, spectrum_event_handler, LV_EVENT_RELEASED, NULL);
     
-    // Set cursor to current frequency
+    // Set cursor to current frequency bin and update visual position
     uint16_t current_freq = RX5808_Get_Current_Freq();
     cursor_position = get_bin_at_frequency(current_freq);
+    update_cursor();
     
     // Calibrate and start scanning
     calibrate_noise_floor();
