@@ -229,16 +229,16 @@ static void update_zoom_indicator(void)
     lv_label_set_text(zoom_indicator, zoom_text);
 }
 
-// Update Band X status label
+// Update Band X status label (shows saved_freq → cursor_freq live)
 static void update_bandx_status(void)
 {
     if (!bandx_status_label) return;
     
     if (bandx_selection_mode) {
-        // Show which channel we're editing
-        uint16_t current_freq = RX5808_Get_Band_X_Freq(bandx_edit_channel);
-        lv_label_set_text_fmt(bandx_status_label, "Edit CH%d: %d MHz", 
-                              bandx_edit_channel + 1, current_freq);
+        uint16_t saved_freq   = RX5808_Get_Band_X_Freq(bandx_edit_channel);
+        uint16_t cursor_freq  = get_frequency_at_bin(cursor_position);
+        lv_label_set_text_fmt(bandx_status_label, "CH%d:%d>%d",
+                              bandx_edit_channel + 1, saved_freq, cursor_freq);
         lv_obj_clear_flag(bandx_status_label, LV_OBJ_FLAG_HIDDEN);
     } else {
         lv_obj_add_flag(bandx_status_label, LV_OBJ_FLAG_HIDDEN);
@@ -248,10 +248,6 @@ static void update_bandx_status(void)
 // Save Band X frequency and exit
 static void save_bandx_and_exit(uint16_t freq)
 {
-    // Save frequency to the selected Band X channel
-    RX5808_Set_Band_X_Freq(bandx_edit_channel, freq);
-    RX5808_Save_Band_X_To_NVS();
-    // Save frequency to the selected Band X channel
     RX5808_Set_Band_X_Freq(bandx_edit_channel, freq);
     RX5808_Save_Band_X_To_NVS();
     
@@ -375,6 +371,11 @@ static void update_cursor(void)
 {
     int cursor_x = cursor_position * (BAR_WIDTH + BAR_SPACING);
     lv_obj_set_pos(cursor_marker, cursor_x, 14);
+
+    // In Band X edit mode, keep status label in sync with cursor frequency
+    if (bandx_selection_mode) {
+        update_bandx_status();
+    }
 
     // Update info display
     update_info_display();
@@ -722,19 +723,33 @@ void page_spectrum_create(bool bandx_selection, uint8_t bandx_channel)
     lv_obj_set_style_pad_all(spectrum_contain, 0, 0);
     lv_obj_clear_flag(spectrum_contain, LV_OBJ_FLAG_SCROLLABLE);
     
-    // Band X status indicator
+    // Band X status indicator — top-left strip showing "CH%d:saved>cursor"
+    // In normal mode this label is hidden; we size it to not reach the zoom indicator.
     bandx_status_label = lv_label_create(spectrum_contain);
     lv_obj_set_style_text_font(bandx_status_label, &lv_font_chinese_12, 0);
     lv_obj_set_style_text_color(bandx_status_label, lv_color_hex(0xFF00FF), 0);
-    lv_obj_align(bandx_status_label, LV_ALIGN_TOP_MID, -20, 2);
-    update_bandx_status();
-    
-    // Zoom indicator (top right)
+    lv_obj_set_pos(bandx_status_label, 2, 2);
+    lv_obj_set_size(bandx_status_label, 104, 12);
+    lv_label_set_long_mode(bandx_status_label, LV_LABEL_LONG_CLIP);
+
+    // Zoom indicator (top right) — hidden in Band X edit mode (zoom is not the focus)
     zoom_indicator = lv_label_create(spectrum_contain);
     lv_label_set_text(zoom_indicator, "16MHz/bar");
     lv_obj_set_style_text_font(zoom_indicator, &lv_font_chinese_12, 0);
     lv_obj_set_style_text_color(zoom_indicator, lv_color_hex(0x808080), 0);
     lv_obj_align(zoom_indicator, LV_ALIGN_TOP_RIGHT, -2, 2);
+    if (bandx_selection_mode) {
+        lv_obj_add_flag(zoom_indicator, LV_OBJ_FLAG_HIDDEN);
+        // Instruction hint at top-right ("OK=Save" fits in the freed space)
+        lv_obj_t* bandx_hint = lv_label_create(spectrum_contain);
+        lv_label_set_text(bandx_hint, "OK=Save");
+        lv_obj_set_style_text_font(bandx_hint, &lv_font_chinese_12, 0);
+        lv_obj_set_style_text_color(bandx_hint, lv_color_hex(0xFFFF00), 0);
+        lv_obj_set_pos(bandx_hint, 106, 2);
+        lv_obj_set_size(bandx_hint, 54, 12);
+        lv_label_set_long_mode(bandx_hint, LV_LABEL_LONG_CLIP);
+    }
+    update_bandx_status();
     
     // Create bars
     for (int i = 0; i < SPECTRUM_BINS; i++) {
@@ -758,10 +773,11 @@ void page_spectrum_create(bool bandx_selection, uint8_t bandx_channel)
         lv_obj_set_pos(peak_markers[i], i * (BAR_WIDTH + BAR_SPACING), 60);
     }
     
-    // Cursor marker (rectangle over current bin)
+    // Cursor marker — magenta & taller in Band X edit mode for clear distinction
     cursor_marker = lv_obj_create(spectrum_contain);
-    lv_obj_set_size(cursor_marker, BAR_WIDTH, 3);
-    lv_obj_set_style_bg_color(cursor_marker, lv_color_hex(0xFFFF00), 0);
+    lv_obj_set_size(cursor_marker, BAR_WIDTH, bandx_selection_mode ? 5 : 3);
+    lv_obj_set_style_bg_color(cursor_marker,
+        bandx_selection_mode ? lv_color_hex(0xFF00FF) : lv_color_hex(0xFFFF00), 0);
     lv_obj_set_style_border_width(cursor_marker, 0, 0);
     lv_obj_set_style_radius(cursor_marker, 0, 0);
     lv_obj_set_pos(cursor_marker,
@@ -802,9 +818,13 @@ void page_spectrum_create(bool bandx_selection, uint8_t bandx_channel)
     lv_obj_add_event_cb(spectrum_contain, spectrum_event_handler, LV_EVENT_PRESSED, NULL);
     lv_obj_add_event_cb(spectrum_contain, spectrum_event_handler, LV_EVENT_RELEASED, NULL);
     
-    // Set cursor to current frequency bin and update visual position
-    uint16_t current_freq = RX5808_Get_Current_Freq();
-    cursor_position = get_bin_at_frequency(current_freq);
+    // Set cursor to current frequency bin and update visual position.
+    // In Band X edit mode snap to the channel's saved frequency so the user
+    // can see exactly where the current value sits before changing it.
+    uint16_t snap_freq = bandx_selection_mode
+        ? RX5808_Get_Band_X_Freq(bandx_edit_channel)
+        : RX5808_Get_Current_Freq();
+    cursor_position = get_bin_at_frequency(snap_freq);
     update_cursor();
     
     // Calibrate and start scanning
