@@ -318,7 +318,7 @@ static void keypad_read(lv_indev_drv_t * indev_drv, lv_indev_data_t * data)
     /* Release debounce: require 3 consecutive zero ADC reads before releasing.
      * This bridges ADC noise gaps on narrow-window keys (e.g. RIGHT at 2800-3000)
      * that would otherwise cause the LVGL keypad FSM to reset on every noisy tick. */
-    static uint8_t zero_streak = 0;
+    static uint32_t zero_streak = 0;  // uint32_t prevents overflow (uint8_t wraps at 255 → phantom key)
 
     uint32_t act_key = keypad_get_key();
     if(act_key != 0) {
