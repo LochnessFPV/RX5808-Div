@@ -133,6 +133,15 @@ static void set_zoom_level(zoom_level_t new_zoom, uint16_t center_freq)
             view_freq_min = FREQ_FULL_MIN;
             view_freq_max = FREQ_FULL_MAX;
             freq_step = (FREQ_FULL_MAX - FREQ_FULL_MIN) / SPECTRUM_BINS;
+            // Must reset scan state here too — same as the zoomed-in paths below.
+            // Without this, zooming back out leaves stale narrow-view RSSI data
+            // in rssi_data[] and current_bin continues from mid-scan with the old
+            // freq mapping, producing scrambled bars until a full pass completes.
+            memset(rssi_data, 0, sizeof(rssi_data));
+            memset(peak_data, 0, sizeof(peak_data));
+            current_bin = 0;
+            scan_pass = 0;
+            scan_complete = false;
             update_zoom_indicator();
             return;
     }
@@ -165,6 +174,7 @@ static void set_zoom_level(zoom_level_t new_zoom, uint16_t center_freq)
 // Detect strong signals and auto-zoom
 static void detect_and_auto_zoom(void)
 {
+    if (bandx_selection_mode) return;  // Never auto-zoom in edit mode: user controls zoom manually
     if (zoom_level != ZOOM_FULL) return;  // Only auto-zoom from full view
     if (!scan_complete) return;  // Wait for first scan
     
