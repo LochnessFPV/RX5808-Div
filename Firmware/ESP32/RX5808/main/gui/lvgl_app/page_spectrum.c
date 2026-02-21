@@ -37,7 +37,6 @@ typedef enum {
 
 // UI objects
 static lv_obj_t* spectrum_contain;
-static lv_obj_t* title_label;
 static lv_obj_t* cursor_marker;
 static lv_obj_t* info_label;
 static lv_obj_t* zoom_indicator;
@@ -690,17 +689,6 @@ void page_spectrum_create(bool bandx_selection, uint8_t bandx_channel)
     lv_obj_set_style_border_width(spectrum_contain, 0, 0);
     lv_obj_set_style_pad_all(spectrum_contain, 0, 0);
     lv_obj_clear_flag(spectrum_contain, LV_OBJ_FLAG_SCROLLABLE);
-    
-    // Title
-    title_label = lv_label_create(spectrum_contain);
-    if (bandx_selection_mode) {
-        lv_label_set_text(title_label, "Select Band X");
-    } else {
-        lv_label_set_text(title_label, "Spectrum Analyzer");
-    }
-    lv_obj_set_style_text_font(title_label, &lv_font_chinese_12, 0);
-    lv_obj_set_style_text_color(title_label, lv_color_hex(0x00E0E0), 0);
-    lv_obj_align(title_label, LV_ALIGN_TOP_LEFT, 2, 2);
     
     // Band X status indicator
     bandx_status_label = lv_label_create(spectrum_contain);
