@@ -24,6 +24,7 @@ extern "C" {
     **********************/
     extern lv_indev_t* indev_keypad;
     void page_scan_table_create(void);
+    void page_scan_table_create_from_main(void);
     /**********************
     *      MACROS
     **********************/

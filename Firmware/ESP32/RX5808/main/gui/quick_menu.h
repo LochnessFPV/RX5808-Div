@@ -2,7 +2,7 @@
  * @file quick_menu.h
  * @brief Quick Action Menu - Fast access to common features
  * 
- * Provides a popup menu accessible via long-hold RIGHT button from main page.
+ * Provides a popup menu accessible via long-hold LEFT button when locked.
  * Solves UX pain point: Long workflows (7+ steps to scan → 2 steps)
  * 
  * Menu Items:
@@ -42,7 +42,7 @@ typedef enum {
     QUICK_ACTION_CALIBRATION,   // Open calibration
     QUICK_ACTION_BAND_X,        // Open Band X editor
     QUICK_ACTION_SETTINGS,      // Open setup page
-    QUICK_ACTION_MAIN_MENU,     // Return to main menu
+    QUICK_ACTION_EXIT,          // Close quick menu, stay on main page
     QUICK_ACTION_COUNT
 } quick_action_t;
 
@@ -54,6 +54,7 @@ typedef struct {
     const char* icon;           // Icon symbol (optional)
     quick_action_t action;      // Action to perform
     bool enabled;               // Item enabled state
+    bool locked_visible;        // Show in locked (text-only, fewer) mode
 } quick_menu_item_t;
 
 /**
@@ -64,7 +65,10 @@ typedef struct {
     lv_obj_t* menu_obj;         // Menu popup object
     lv_obj_t* list;             // List of menu items
     lv_group_t* group;          // Input group
-    uint8_t selected_index;     // Currently selected item
+    uint8_t selected_index;     // 0-based index within rendered items
+    uint8_t item_count;         // Number of rendered items
+    lv_obj_t* items[QUICK_ACTION_COUNT];          // Rendered button pointers
+    quick_action_t item_actions[QUICK_ACTION_COUNT]; // Actions for rendered items
     bool active;                // Menu is currently shown
     
     // Callback for action selection
@@ -84,9 +88,10 @@ quick_menu_t* quick_menu_init(void);
  * @param menu Quick menu context
  * @param parent Parent object (main page container)
  * @param on_action Callback when action is selected
+ * @param show_icons true to include icons, false for text-only
  * @return true if menu was shown, false on error
  */
-bool quick_menu_show(quick_menu_t* menu, lv_obj_t* parent, void (*on_action)(quick_action_t));
+bool quick_menu_show(quick_menu_t* menu, lv_obj_t* parent, void (*on_action)(quick_action_t), bool show_icons);
 
 /**
  * @brief Hide/close quick menu

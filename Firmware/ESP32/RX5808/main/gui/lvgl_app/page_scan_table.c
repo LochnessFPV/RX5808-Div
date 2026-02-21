@@ -29,6 +29,7 @@ static lv_obj_t* scan_info_cont;
 static uint8_t  max_rssi;
 static uint8_t  max_channel;
 static lv_obj_t* confirm_dialog = NULL;
+static bool scan_return_to_main = false;  // when true, exit returns to main page not menu
 
 static void page_scan_table_timer_event(lv_timer_t* tmr);
 static void scroll_event(lv_event_t* event);
@@ -46,6 +47,12 @@ static const lv_color_t channel_label_color[] = { {.full = 0XFC07},{.full = 0XFC
 
 
 void page_scan_table_create(void);
+
+void page_scan_table_create_from_main(void)
+{
+    scan_return_to_main = true;
+    page_scan_table_create();
+}
 
 static void page_scan_table_timer_event(lv_timer_t* tmr)
 {
@@ -209,7 +216,12 @@ static void page_scan_table_exit()
     led_set_pattern(lock_flag ? LED_PATTERN_SOLID : LED_PATTERN_HEARTBEAT);
     
     lv_obj_del_delayed(page_scan_table_contain, 500);
-    lv_fun_param_delayed(page_menu_create, 500, item_quick_scan);
+    if (scan_return_to_main) {
+        scan_return_to_main = false;
+        lv_fun_delayed(page_main_create, 500);
+    } else {
+        lv_fun_param_delayed(page_menu_create, 500, item_quick_scan);
+    }
     lv_fun_delayed(page_scan_table_style_deinit, 500);
     lv_group_del(scan_group);
 }
