@@ -1,7 +1,7 @@
 /**
  * @file diversity.c
  * @brief Advanced diversity switching algorithm implementation
- * @version 1.7.1
+ * @version 1.8.0
  */
 
 #include "diversity.h"
@@ -373,6 +373,150 @@ static IRAM_ATTR void diversity_perform_switch(diversity_state_t* state) {
              state->switch_count);
 }
 
+// ============================================================================
+// Point 8: Interference rejection via micro-frequency offset
+// When the active receiver RSSI is weak AND declining, the system trials a
+// ±1 MHz shift on both chips.  If the shift improves RSSI by at least
+// FREQ_SHIFT_IMPROVE_MIN within FREQ_SHIFT_EVAL_MS it is held for
+// FREQ_SHIFT_HOLD_MS seconds, after which the nominal frequency is restored.
+// Both directions are tried before giving up (cooldown FREQ_SHIFT_COOLDOWN_MS).
+// RX5808_Set_Freq() programs both RX chips simultaneously and already blocks
+// ~50 ms for PLL settling, so no extra delay is required here.
+// ============================================================================
+#define FREQ_SHIFT_TRIGGER_RSSI    22   // Trigger only when active rssi_norm < this
+#define FREQ_SHIFT_TRIGGER_SLOPE (-80)  // Trigger only when rssi_slope < this (ADC-units/s)
+#define FREQ_SHIFT_DWELL_MIN_MS   1500  // Must be on current receiver for this long before shifting
+#define FREQ_SHIFT_EVAL_MS         300  // Evidence-collection window after the shift (ms)
+#define FREQ_SHIFT_HOLD_MS       30000  // Hold a successful shift for 30 s
+#define FREQ_SHIFT_COOLDOWN_MS   30000  // Minimum gap between shift attempts (ms)
+#define FREQ_SHIFT_IMPROVE_MIN       5  // rssi_norm must improve by at least this to accept
+
+/**
+ * @brief Point 8 FSM: non-blocking micro-frequency-offset interference rejector.
+ *
+ * Must be called every diversity update cycle *after* statistics and scoring
+ * have been refreshed.  The function may call RX5808_Set_Freq() which blocks
+ * ~50 ms (PLL settle), mirroring the latency already accepted during normal
+ * channel changes.
+ *
+ * Guard conditions prevent activation during calibration, switch cooldown,
+ * or when the user has changed band/channel externally.
+ */
+static void diversity_freq_shift_update(diversity_state_t* state, uint32_t now)
+{
+    const diversity_rx_state_t* arx = (state->active_rx == DIVERSITY_RX_A)
+                                      ? &state->rx_a : &state->rx_b;
+
+    /* ----------------------------------------------------------------
+     * External channel-change detection.
+     * RX5808_Get_Current_Freq() reads from the band-table (the nominal
+     * channel the user selected), never from expected_frequency.  So if
+     * the user changed channel while we held a shift, the nominal will
+     * differ from freq_shift_nominal.  Silently reset; RX5808_Set_Freq
+     * was already called externally with the new nominal, so PLL is OK.
+     * ---------------------------------------------------------------- */
+    if (state->freq_shift_state != FREQ_SHIFT_IDLE) {
+        uint16_t current_nominal = RX5808_Get_Current_Freq();
+        if (current_nominal != state->freq_shift_nominal) {
+            ESP_LOGI(TAG, "Point8: channel changed externally (%d→%d), resetting FSM",
+                     state->freq_shift_nominal, current_nominal);
+            state->freq_shift_state  = FREQ_SHIFT_IDLE;
+            state->freq_shift_offset = 0;
+            // No cooldown needed — this was a user-initiated change.
+            return;
+        }
+    }
+
+    switch (state->freq_shift_state) {
+
+    /* -------------------------------------------------------------- */
+    case FREQ_SHIFT_IDLE:
+        // Gate conditions
+        if (now < state->freq_shift_cooldown_ms)                   break;
+        if (state->in_cooldown)                                     break;
+        if (state->time_stable_ms < FREQ_SHIFT_DWELL_MIN_MS)       break;
+        if (arx->rssi_norm  >= FREQ_SHIFT_TRIGGER_RSSI)            break;
+        if (arx->rssi_slope >= FREQ_SHIFT_TRIGGER_SLOPE)           break;
+
+        // Snapshot nominal and baseline RSSI
+        state->freq_shift_nominal  = RX5808_Get_Current_Freq();
+        state->freq_shift_baseline = arx->rssi_norm;
+        state->freq_shift_offset   = +1;
+        ESP_LOGI(TAG, "Point8: rssi=%d slope=%d → trying +1 MHz (%d→%d)",
+                 arx->rssi_norm, arx->rssi_slope,
+                 state->freq_shift_nominal, state->freq_shift_nominal + 1);
+        RX5808_Set_Freq((uint16_t)(state->freq_shift_nominal + 1));
+        state->freq_shift_eval_end_ms = now + FREQ_SHIFT_EVAL_MS;
+        state->freq_shift_state       = FREQ_SHIFT_EVAL_PLUS;
+        break;
+
+    /* -------------------------------------------------------------- */
+    case FREQ_SHIFT_EVAL_PLUS:
+        if (now < state->freq_shift_eval_end_ms) break;
+
+        if ((int16_t)arx->rssi_norm >=
+            (int16_t)state->freq_shift_baseline + FREQ_SHIFT_IMPROVE_MIN) {
+            // +1 MHz improved reception — hold it
+            ESP_LOGI(TAG, "Point8: +1 MHz accepted (rssi %d→%d), holding %d s",
+                     state->freq_shift_baseline, arx->rssi_norm,
+                     FREQ_SHIFT_HOLD_MS / 1000);
+            state->freq_shift_hold_end_ms = now + FREQ_SHIFT_HOLD_MS;
+            state->freq_shift_state       = FREQ_SHIFT_HOLD;
+        } else {
+            // +1 didn't help — try -1 MHz
+            // Hardware is currently at nominal+1; target is nominal-1 = (nominal+1) - 2
+            state->freq_shift_offset = -1;
+            ESP_LOGI(TAG, "Point8: +1 no help → trying -1 MHz (%d)",
+                     state->freq_shift_nominal - 1);
+            RX5808_Set_Freq((uint16_t)(state->freq_shift_nominal - 1));
+            state->freq_shift_eval_end_ms = now + FREQ_SHIFT_EVAL_MS;
+            state->freq_shift_state       = FREQ_SHIFT_EVAL_MINUS;
+        }
+        break;
+
+    /* -------------------------------------------------------------- */
+    case FREQ_SHIFT_EVAL_MINUS:
+        if (now < state->freq_shift_eval_end_ms) break;
+
+        if ((int16_t)arx->rssi_norm >=
+            (int16_t)state->freq_shift_baseline + FREQ_SHIFT_IMPROVE_MIN) {
+            // -1 MHz improved reception — hold it
+            ESP_LOGI(TAG, "Point8: -1 MHz accepted (rssi %d→%d), holding %d s",
+                     state->freq_shift_baseline, arx->rssi_norm,
+                     FREQ_SHIFT_HOLD_MS / 1000);
+            state->freq_shift_hold_end_ms = now + FREQ_SHIFT_HOLD_MS;
+            state->freq_shift_state       = FREQ_SHIFT_HOLD;
+        } else {
+            // Neither ±1 MHz helped — revert to nominal and cool down
+            ESP_LOGI(TAG, "Point8: neither offset helped → reverting to %d MHz",
+                     state->freq_shift_nominal);
+            RX5808_Set_Freq(state->freq_shift_nominal);
+            state->freq_shift_offset      = 0;
+            state->freq_shift_cooldown_ms = now + FREQ_SHIFT_COOLDOWN_MS;
+            state->freq_shift_state       = FREQ_SHIFT_IDLE;
+        }
+        break;
+
+    /* -------------------------------------------------------------- */
+    case FREQ_SHIFT_HOLD:
+        if (now >= state->freq_shift_hold_end_ms) {
+            // Hold period expired — quietly revert to nominal
+            ESP_LOGI(TAG, "Point8: hold expired → reverting to %d MHz",
+                     state->freq_shift_nominal);
+            RX5808_Set_Freq(state->freq_shift_nominal);
+            state->freq_shift_offset      = 0;
+            // Short cooldown after natural expiry — allows re-trial sooner
+            state->freq_shift_cooldown_ms = now + (FREQ_SHIFT_COOLDOWN_MS / 3);
+            state->freq_shift_state       = FREQ_SHIFT_IDLE;
+        }
+        break;
+
+    default:
+        state->freq_shift_state = FREQ_SHIFT_IDLE;
+        break;
+    }
+}
+
 /**
  * @brief Main diversity update function - call at DIVERSITY_SAMPLE_RATE_HZ
  * Implements adaptive sampling: 100Hz (10ms) during active switching, 20Hz (50ms) when stable
@@ -518,6 +662,11 @@ void diversity_update(void) {
     diversity_check_receiver_health(&state->rx_a);
     diversity_check_receiver_health(&state->rx_b);
     
+    // Point 8: interference rejection via micro-frequency offset
+    // Run after scores and outcome bonuses are finalised, before the switch decision,
+    // so that a successful shift is reflected in the next cycle's scores.
+    diversity_freq_shift_update(state, now);
+
     // Update telemetry
     state->rssi_delta = (int8_t)state->rx_a.rssi_norm - (int8_t)state->rx_b.rssi_norm;
     state->time_stable_ms = now - state->last_switch_ms;

@@ -9,6 +9,8 @@
  *   - Point 7: per-receiver software AGC (slow EMA baseline, ±15% correction)
  *   - Point 9: outcome-weighted hysteresis (+8 score bonus for 5 s when a
  *              switch is confirmed beneficial 200 ms after the event)
+ *   - Point 8: interference rejection via micro-frequency offset (±1 MHz trial
+ *              when active receiver RSSI is low and declining; reverts after 30 s)
  * 
  * Implements intelligent diversity switching with:
  * - RSSI normalization and calibration
@@ -42,6 +44,14 @@ typedef enum {
     DIVERSITY_RX_A = 0,
     DIVERSITY_RX_B,
 } diversity_rx_t;
+
+/** @brief Frequency-shift FSM states for interference rejection (point 8) */
+typedef enum {
+    FREQ_SHIFT_IDLE = 0,       // No shift active; normal operation
+    FREQ_SHIFT_EVAL_PLUS,      // Tried +1 MHz — collecting evidence
+    FREQ_SHIFT_EVAL_MINUS,     // Tried -1 MHz — collecting evidence
+    FREQ_SHIFT_HOLD,           // Shift accepted; holding for FREQ_SHIFT_HOLD_MS
+} freq_shift_state_t;
 
 /** @brief Receiver health status flags */
 typedef struct {
@@ -135,6 +145,15 @@ typedef struct {
     bool adaptive_high_rate;       // true=100Hz, false=20Hz
     float switches_per_second;     // Recent switching rate
     
+    // Point 8: interference rejection via micro-frequency offset
+    freq_shift_state_t freq_shift_state;       // FSM state
+    uint16_t           freq_shift_nominal;     // Nominal channel freq at trigger time (MHz)
+    int8_t             freq_shift_offset;      // Active offset: 0, +1, or -1 MHz
+    uint32_t           freq_shift_eval_end_ms; // End of evidence-collection window
+    uint32_t           freq_shift_hold_end_ms; // When the accepted hold expires
+    uint32_t           freq_shift_cooldown_ms; // Don't re-trigger until this timestamp
+    uint8_t            freq_shift_baseline;    // rssi_norm of active RX at trigger time
+
     // Telemetry
     int8_t rssi_delta;             // RSSI_A - RSSI_B (signed)
     uint8_t switches_per_min;      // Recent switch rate
