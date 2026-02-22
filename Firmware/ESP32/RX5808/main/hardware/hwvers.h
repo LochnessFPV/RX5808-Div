@@ -76,14 +76,18 @@
 
 
 
-#define RX5808_RSSI0_CHAN  ADC1_CHANNEL_0
-#define RX5808_RSSI1_CHAN  ADC1_CHANNEL_3
+// ADC channel constants use the new adc_channel_t enum (esp_adc/adc_oneshot.h).
+// The legacy ADC1_CHANNEL_x names belong to driver/adc.h which is deprecated
+// in ESP-IDF v5.x; the replacement API drops the unit prefix.
+#include "esp_adc/adc_oneshot.h"
+#define RX5808_RSSI0_CHAN  ADC_CHANNEL_0
+#define RX5808_RSSI1_CHAN  ADC_CHANNEL_3
 #ifndef D0WDQ6_VER
-#define VBAT_ADC_CHAN      ADC1_CHANNEL_1
-#define KEY_ADC_CHAN       ADC1_CHANNEL_2
+#define VBAT_ADC_CHAN      ADC_CHANNEL_1
+#define KEY_ADC_CHAN       ADC_CHANNEL_2
 #else
-#define VBAT_ADC_CHAN      ADC1_CHANNEL_7
-#define KEY_ADC_CHAN       ADC1_CHANNEL_6
+#define VBAT_ADC_CHAN      ADC_CHANNEL_7
+#define KEY_ADC_CHAN       ADC_CHANNEL_6
 #endif
 
 #define RX5808_SCLK       18

@@ -267,20 +267,13 @@ void lv_port_indev_init(void)
  * -----------------*/
 // #define ADC_EXAMPLE_CALI_SCHEME     ESP_ADC_CAL_VAL_EFUSE_VREF
 
-
-// //ADC Channels
-#ifndef D0WDQ6_VER
-#define KEY_ADC_CHAN          ADC1_CHANNEL_2
-#else
-#define KEY_ADC_CHAN          ADC1_CHANNEL_6
-#endif
+// KEY_ADC_CHAN is defined in hardware/hwvers.h (included via lv_port_indev.h)
 
 // //ADC Attenuation
 // #define ADC_EXAMPLE_ATTEN           ADC_ATTEN_DB_11
 
 #include "driver/gpio.h"
-#include "driver/adc.h"
-#include "esp_adc_cal.h"
+#include "hardware/rx5808.h"   /* shared ADC1 oneshot handle */
 #include "esp_log.h"
 
 static int key_raw;
@@ -341,7 +334,7 @@ static void keypad_read(lv_indev_drv_t * indev_drv, lv_indev_data_t * data)
 static uint32_t keypad_get_key(void)
 {
 
-    key_raw = adc1_get_raw(KEY_ADC_CHAN);
+    key_raw = RX5808_ADC_Read_Raw(KEY_ADC_CHAN);
     if(key_raw > 10 && key_raw < 4090) {  // suppress true idle (4095) and floating noise
         printf("KEY_ADC_V: %d\n", key_raw);
     }

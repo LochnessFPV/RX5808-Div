@@ -72,5 +72,8 @@ void RX5808_Load_Band_X_From_NVS(void);
 bool RX5808_Is_Band_X(void);
 uint16_t RX5808_Get_Current_Freq(void);
 
+// ADC shared access (oneshot unit, also used by lvgl keypad driver)
+int RX5808_ADC_Read_Raw(int channel);
+
 #endif
 

@@ -1,8 +1,7 @@
 #include "rx5808.h"
 #include "driver/gpio.h"
-#include "driver/adc.h"
 #include "driver/spi_master.h"
-#include "esp_adc_cal.h"
+#include "esp_adc/adc_oneshot.h"
 #include "esp_log.h"
 #include "sys/unistd.h"
 #include "esp_timer.h"
@@ -113,66 +112,40 @@ const uint16_t Rx5808_Freq[7][8]=
     {5658,5695,5732,5769,5806,5843,5880,5917}		//X	CH1-8 (USER FAVORITES - default to RACEBAND)
 };
 
-static esp_adc_cal_characteristics_t adc1_chars;
-
-#define ADC_RESULT_BYTE     2
-#define ADC_CONV_LIMIT_EN   1                       //For ESP32, this should always be set to 1
-#define ADC_CONV_MODE       ADC_CONV_SINGLE_UNIT_1  //ESP32 only supports ADC1 DMA mode
-#define ADC_OUTPUT_TYPE     ADC_DIGI_OUTPUT_FORMAT_TYPE1
+static adc_oneshot_unit_handle_t adc1_handle = NULL;
 
 
 
-void RX5808_RSSI_ADC_Init()
+void RX5808_RSSI_ADC_Init(void)
 {
-     esp_err_t ret;
-    ret = esp_adc_cal_check_efuse(ESP_ADC_CAL_VAL_EFUSE_VREF);
-    if (ret == ESP_OK) {
-        esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN_DB_12, ADC_WIDTH_BIT_DEFAULT, 0, &adc1_chars);
-    } else {
-        printf("adc calib failed!\n");
-    }
-    adc_set_clk_div(1);
-    adc1_config_width(ADC_WIDTH_BIT_12);
-    adc1_config_channel_atten(RX5808_RSSI0_CHAN, ADC_ATTEN_DB_12);
-	adc1_config_channel_atten(RX5808_RSSI1_CHAN, ADC_ATTEN_DB_12);
-	adc1_config_channel_atten(VBAT_ADC_CHAN, ADC_ATTEN_DB_12);
-	adc1_config_channel_atten(KEY_ADC_CHAN, ADC_ATTEN_DB_12);
+    /* --- IDF v5.x oneshot ADC driver --- */
+    adc_oneshot_unit_init_cfg_t unit_cfg = {
+        .unit_id  = ADC_UNIT_1,
+        .ulp_mode = ADC_ULP_MODE_DISABLE,
+    };
+    ESP_ERROR_CHECK(adc_oneshot_new_unit(&unit_cfg, &adc1_handle));
 
+    adc_oneshot_chan_cfg_t ch_cfg = {
+        .atten    = ADC_ATTEN_DB_12,
+        .bitwidth = ADC_BITWIDTH_DEFAULT,
+    };
+    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc1_handle, RX5808_RSSI0_CHAN, &ch_cfg));
+    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc1_handle, RX5808_RSSI1_CHAN, &ch_cfg));
+    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc1_handle, VBAT_ADC_CHAN,     &ch_cfg));
+    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc1_handle, KEY_ADC_CHAN,      &ch_cfg));
+}
 
-    // adc_digi_init_config_t adc_dma_config = {
-    //     .max_store_buf_size = 1024,
-    //     .conv_num_each_intr = 32,
-    //     .adc1_chan_mask = BIT(7),
-    //     .adc2_chan_mask = 0,
-    // };
-    // ESP_ERROR_CHECK(adc_digi_initialize(&adc_dma_config));
-
-    // adc_digi_configuration_t dig_cfg = {
-    //     .conv_limit_en = ADC_CONV_LIMIT_EN,
-    //     .conv_limit_num = 32,
-    //     .sample_freq_hz = 40 * 1000,
-    //     .conv_mode = ADC_CONV_MODE,
-    //     .format = ADC_OUTPUT_TYPE,
-    // };
-
-    // adc_digi_pattern_config_t adc_pattern[SOC_ADC_PATT_LEN_MAX] = {0};
-    // dig_cfg.pattern_num = 4;
-    // for (int i = 0; i < 4; i++) {
-    //     uint8_t unit = GET_UNIT(adc_dma_chan[i]);
-    //     uint8_t ch = adc_dma_chan[i] & 0x7;
-    //     adc_pattern[i].atten = ADC_ATTEN_DB_11;
-    //     adc_pattern[i].channel = ch;
-    //     adc_pattern[i].unit = unit;
-    //     adc_pattern[i].bit_width = SOC_ADC_DIGI_MAX_BITWIDTH;
-
-    //     //ESP_LOGI(TAG, "adc_pattern[%d].atten is :%x", i, adc_pattern[i].atten);
-    //    // ESP_LOGI(TAG, "adc_pattern[%d].channel is :%x", i, adc_pattern[i].channel);
-    //     //ESP_LOGI(TAG, "adc_pattern[%d].unit is :%x", i, adc_pattern[i].unit);
-    // }
-    // dig_cfg.adc_pattern = adc_pattern;
-    // ESP_ERROR_CHECK(adc_digi_controller_configure(&dig_cfg));
-	// adc_digi_start();
-
+/**
+ * @brief Read a raw ADC sample from any configured ADC1 channel.
+ *        Used by other drivers (e.g. lvgl keypad) that share the oneshot unit.
+ * @param channel  ADC1 channel number (adc_channel_t cast to int)
+ * @return raw 12-bit ADC reading, or 0 on error
+ */
+int RX5808_ADC_Read_Raw(int channel)
+{
+    int raw = 0;
+    adc_oneshot_read(adc1_handle, (adc_channel_t)channel, &raw);
+    return raw;
 }
 
 /**
@@ -579,14 +552,16 @@ void DMA2_Stream0_IRQHandler(void)
 	{
     uint32_t sum0=0,sum1=0;
     
-	for(int i=0;i<16;i++)
-	{
-		sum0+=adc1_get_raw(RX5808_RSSI0_CHAN);
-		sum1+=adc1_get_raw(RX5808_RSSI1_CHAN);
-	}
-	adc_converted_value[0]=sum0>>4;		
-	adc_converted_value[1]=sum1>>4;	
-	adc_converted_value[2]=adc1_get_raw(VBAT_ADC_CHAN);		
+int _adc_raw;
+    for(int i=0;i<16;i++)
+    {
+        adc_oneshot_read(adc1_handle, RX5808_RSSI0_CHAN, &_adc_raw); sum0 += _adc_raw;
+        adc_oneshot_read(adc1_handle, RX5808_RSSI1_CHAN, &_adc_raw); sum1 += _adc_raw;
+    }
+    adc_converted_value[0] = sum0 >> 4;
+    adc_converted_value[1] = sum1 >> 4;
+    adc_oneshot_read(adc1_handle, VBAT_ADC_CHAN, &_adc_raw);
+    adc_converted_value[2] = (uint16_t)_adc_raw;
 		
 	int sig_src = Rx5808_Signal_Source;
 	// 关断则都为0

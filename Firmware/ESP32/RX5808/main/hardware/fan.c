@@ -1,6 +1,5 @@
 #include "fan.h"
 #include "driver/ledc.h"
-#include "driver/temperature_sensor.h"
 #include "hwvers.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -9,10 +8,11 @@
 
 static const char* TAG_FAN = "FAN";
 
-// Official ESP-IDF v5.x temperature sensor handle
-// Replaces the undocumented temprature_sens_read() ROM call which returned
-// uncalibrated Fahrenheit values and had ±5°C accuracy.
-static temperature_sensor_handle_t tsens_handle = NULL;
+// The original ESP32 chip exposes die temperature via the ROM function
+// temprature_sens_read() (note: intentional Espressif typo).  It returns
+// a raw uint8_t value in degrees Fahrenheit; convert with (F-32)/1.8.
+// The newer driver/temperature_sensor.h HAL is NOT available on ESP32.
+extern uint8_t temprature_sens_read(void);
 
 // User-configured floor speed (saved to EEPROM, returned by fan_get_speed)
 volatile uint8_t fan_speed = 100;
@@ -104,10 +104,8 @@ static uint8_t thermal_curve(float temp_c)
 static void thermal_task(void* param)
 {
     while (1) {
-        float temp_c = 25.0f;
-        if (temperature_sensor_get_celsius(tsens_handle, &temp_c) != ESP_OK) {
-            ESP_LOGW(TAG_FAN, "Failed to read temperature sensor");
-        }
+        // ROM function returns Fahrenheit; convert to Celsius
+        float temp_c = ((float)temprature_sens_read() - 32.0f) / 1.8f;
         thermal_temp_c = temp_c;
 
         uint8_t thermal = thermal_curve(temp_c);
@@ -128,14 +126,9 @@ static void thermal_task(void* param)
 
 void thermal_control_init(void)
 {
-    // Install and enable the official ESP-IDF temperature sensor driver.
-    // The range 20–100 °C covers normal idle through max throttle conditions.
-    temperature_sensor_config_t tsens_cfg = TEMPERATURE_SENSOR_CONFIG_DEFAULT(20, 100);
-    ESP_ERROR_CHECK(temperature_sensor_install(&tsens_cfg, &tsens_handle));
-    ESP_ERROR_CHECK(temperature_sensor_enable(tsens_handle));
-    ESP_LOGI(TAG_FAN, "Temperature sensor driver installed");
-
-    xTaskCreate(thermal_task, "thermal", 3072, NULL, 1, NULL);
+    // No driver install needed: the ESP32 ROM exposes temprature_sens_read()
+    // directly without any peripheral initialisation.
+    xTaskCreate(thermal_task, "thermal", 2048, NULL, 1, NULL);
     ESP_LOGI(TAG_FAN, "Thermal fan control started");
 }
 
