@@ -160,15 +160,18 @@ static void led_task(void *param)
             case LED_PATTERN_BREATHING:
                 brightness = calculate_breathing_brightness(tick);
                 led_apply_brightness(brightness, tick);
-                vTaskDelay(2 / portTICK_PERIOD_MS);
-                tick += 2;
+                // pdMS_TO_TICKS() rounds UP so 20ms is at least 1 tick
+                // regardless of tick rate; 20ms gives 100 steps per
+                // 2-second breathing cycle — smooth enough.
+                vTaskDelay(pdMS_TO_TICKS(20));
+                tick += 20;
                 break;
                 
             case LED_PATTERN_SIGNAL_STRENGTH:
                 // LED brightness proportional to signal strength
                 led_apply_brightness(signal_strength_rssi, tick);
-                vTaskDelay(2 / portTICK_PERIOD_MS);
-                tick += 2;
+                vTaskDelay(pdMS_TO_TICKS(20));
+                tick += 20;
                 break;
                 
             case LED_PATTERN_DOUBLE_BLINK:

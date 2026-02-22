@@ -6,14 +6,17 @@
 #include "lvgl_stl.h"
 #include "beep.h"
 #include "led.h"
+#include <stdbool.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
 LV_FONT_DECLARE(lv_font_chinese_12);
 
 //  Constants 
-#define CALIB_SAMPLES       DIVERSITY_CALIB_SAMPLES   // 50 samples x 50ms = 2.5s
-#define TIMER_INTERVAL_MS   50
+// Single-channel sampling: DIVERSITY_CALIB_SAMPLES ticks × 50ms = 2.5 s per phase.
+// The user tunes to the VTX channel before starting (instructed on the intro screen).
+#define CALIB_SAMPLES      DIVERSITY_CALIB_SAMPLES  // 50 samples per phase
+#define TIMER_INTERVAL_MS  50
 
 // Warning thresholds (tuned for ESP32 ADC + RX5808 hardware reality)
 #define FLOOR_HIGH_THRESHOLD    1000   // above this = noisy environment warning
@@ -22,11 +25,12 @@ LV_FONT_DECLARE(lv_font_chinese_12);
 
 //  State machine 
 typedef enum {
+    STATE_INTRO,            // Screen 0: pre-calibration instructions
     STATE_FLOOR_SETUP,      // Screen 1: "Remove antennas, press OK"
-    STATE_FLOOR_SAMPLING,   // Screen 12: timer collects samples, auto-advances
-    STATE_PEAK_SETUP,       // Screen 2: "Power VTX 10cm, press OK"
-    STATE_PEAK_SAMPLING,    // Screen 23: timer collects samples, auto-advances
-    STATE_SUMMARY,          // Screen 3: results + Save / Discard
+    STATE_FLOOR_SAMPLING,   // Screen 2: timer collects samples, auto-advances
+    STATE_PEAK_SETUP,       // Screen 3: "Power VTX 10cm, press OK"
+    STATE_PEAK_SAMPLING,    // Screen 4: timer collects samples, auto-advances
+    STATE_SUMMARY,          // Screen 5: results + Save / Discard
 } calib_state_t;
 
 //  Static UI objects 
@@ -43,8 +47,8 @@ static lv_timer_t* calib_timer;
 static lv_group_t* calib_group;
 
 //  Static state 
-static calib_state_t current_state = STATE_FLOOR_SETUP;
-static int           sample_index  = 0;
+static calib_state_t current_state = STATE_INTRO;
+static int           sample_index  = 0;  // 0..CALIB_SAMPLES-1
 static uint16_t      buf_a[CALIB_SAMPLES];
 static uint16_t      buf_b[CALIB_SAMPLES];
 static uint16_t      floor_a = 0, floor_b = 0;
@@ -69,15 +73,30 @@ static void update_ui(void)
     lv_obj_add_flag(warning_label, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(rssi_a_label,  LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(rssi_b_label,  LV_OBJ_FLAG_HIDDEN);
+    // Reset geometry to defaults in case a previous state overrode them
+    lv_obj_set_size(instruction_label, 156, 42);
+    lv_obj_set_pos(save_btn, 100, 57);
 
     switch (current_state) {
+
+        case STATE_INTRO:
+            lv_label_set_text(title_label,
+                en ? "Before Calibrating" : "校准前准备");
+            lv_label_set_text(instruction_label,
+                en ? "1. Set VRX to your VTX channel\n2. Keep VTX OFF\nPress OK to start."
+                   : "1. 将VRX调至VTX频道\n2. 关闭VTX\n准备好后按OK");
+            lv_bar_set_value(progress_bar, 0, LV_ANIM_OFF);
+            lv_label_set_text(save_btn, en ? "OK" : "确定");
+            lv_obj_clear_flag(save_btn, LV_OBJ_FLAG_HIDDEN);
+            lv_group_focus_obj(save_btn);
+            break;
 
         case STATE_FLOOR_SETUP:
             lv_label_set_text(title_label,
                 en ? "Floor Calibration" : "底噪校准");
             lv_label_set_text(instruction_label,
-                en ? "Remove BOTH antennas\n(top A & bottom B).\n\nPress OK when ready."
-                   : "移除两个天线\n(顶部A和底部B)\n\n准备好后按OK");
+                en ? "Remove BOTH antennas\n(top A & bottom B).\nPress OK when ready."
+                   : "移除两个天线\n(顶部A和底部B)\n准备好后按OK");
             lv_obj_clear_flag(rssi_a_label, LV_OBJ_FLAG_HIDDEN);
             lv_obj_clear_flag(rssi_b_label, LV_OBJ_FLAG_HIDDEN);
             lv_bar_set_value(progress_bar, 0, LV_ANIM_ON);
@@ -90,8 +109,8 @@ static void update_ui(void)
             lv_label_set_text(title_label,
                 en ? "Sampling Floor..." : "采样底噪...");
             lv_label_set_text(instruction_label,
-                en ? "Keep antennas removed.\nDo not touch device."
-                   : "保持天线移除\n请勿触碰设备");
+                en ? "Keep antennas removed.\nDo not touch device.\nHold to cancel."
+                   : "保持天线移除\n请勿触碰设备\n长按取消");
             lv_obj_clear_flag(rssi_a_label, LV_OBJ_FLAG_HIDDEN);
             lv_obj_clear_flag(rssi_b_label, LV_OBJ_FLAG_HIDDEN);
             break;
@@ -100,8 +119,8 @@ static void update_ui(void)
             lv_label_set_text(title_label,
                 en ? "Peak Calibration" : "峰值校准");
             lv_label_set_text(instruction_label,
-                en ? "Connect BOTH antennas.\nPlace VTX ~10cm away.\n\nPress OK when ready."
-                   : "连接两个天线\n将VTX放在10cm处\n最大功率\n\n准备好后按OK");
+                en ? "Connect BOTH antennas.\nVTX ON, ~10cm away.\nPress OK when ready."
+                   : "连接两个天线\nVTX开启同频道，10cm处\n准备好后按OK");
             lv_obj_clear_flag(rssi_a_label, LV_OBJ_FLAG_HIDDEN);
             lv_obj_clear_flag(rssi_b_label, LV_OBJ_FLAG_HIDDEN);
             lv_bar_set_value(progress_bar, 50, LV_ANIM_ON);
@@ -114,8 +133,8 @@ static void update_ui(void)
             lv_label_set_text(title_label,
                 en ? "Sampling Peak..." : "采样峰值...");
             lv_label_set_text(instruction_label,
-                en ? "Keep VTX in place.\nDo not touch device."
-                   : "保持VTX位置\n请勿触碰设备");
+                en ? "Keep VTX in place.\nDo not touch device.\nHold to cancel."
+                   : "保持VTX位置\n请勿触碰设备\n长按取消");
             lv_obj_clear_flag(rssi_a_label, LV_OBJ_FLAG_HIDDEN);
             lv_obj_clear_flag(rssi_b_label, LV_OBJ_FLAG_HIDDEN);
             break;
@@ -181,13 +200,12 @@ static void calib_timer_cb(lv_timer_t* tmr)
         lv_label_set_text_fmt(rssi_b_label, "B:%4d", adc_converted_value[1]);
     }
 
-    // Floor sampling phase
+    // --- Floor sampling: 50 × 50ms on the user's current channel (VTX OFF) ---
     if (current_state == STATE_FLOOR_SAMPLING) {
-        diversity_calibrate_floor_sample(DIVERSITY_RX_A, buf_a, sample_index);
-        diversity_calibrate_floor_sample(DIVERSITY_RX_B, buf_b, sample_index);
+        buf_a[sample_index] = adc_converted_value[0];
+        buf_b[sample_index] = adc_converted_value[1];
         sample_index++;
         lv_bar_set_value(progress_bar, (sample_index * 50) / CALIB_SAMPLES, LV_ANIM_OFF);
-
         if (sample_index >= CALIB_SAMPLES) {
             diversity_calibrate_floor_finish(buf_a, CALIB_SAMPLES, &floor_a);
             diversity_calibrate_floor_finish(buf_b, CALIB_SAMPLES, &floor_b);
@@ -200,13 +218,12 @@ static void calib_timer_cb(lv_timer_t* tmr)
         return;
     }
 
-    // Peak sampling phase
+    // --- Peak sampling: 50 × 50ms on the same channel (VTX ON, ~10cm) ---
     if (current_state == STATE_PEAK_SAMPLING) {
-        diversity_calibrate_peak_sample(DIVERSITY_RX_A, buf_a, sample_index);
-        diversity_calibrate_peak_sample(DIVERSITY_RX_B, buf_b, sample_index);
+        buf_a[sample_index] = adc_converted_value[0];
+        buf_b[sample_index] = adc_converted_value[1];
         sample_index++;
         lv_bar_set_value(progress_bar, 50 + (sample_index * 50) / CALIB_SAMPLES, LV_ANIM_OFF);
-
         if (sample_index >= CALIB_SAMPLES) {
             diversity_calibrate_peak_finish(buf_a, CALIB_SAMPLES, &peak_a);
             diversity_calibrate_peak_finish(buf_b, CALIB_SAMPLES, &peak_b);
@@ -237,7 +254,9 @@ static void page_diversity_calib_event(lv_event_t* event)
 
     if (code != LV_EVENT_KEY) return;
 
-    lv_key_t key = lv_indev_get_key(lv_indev_get_act());
+    // Bug 2 fix: use lv_event_get_key() not lv_indev_get_key() — the indev
+    // function returns a stale cached value and can produce phantom key events.
+    lv_key_t key = lv_event_get_key(event);
 
     // LEFT/RIGHT navigate between Save and Discard on summary screen
     if (current_state == STATE_SUMMARY) {
@@ -263,6 +282,12 @@ static void page_diversity_calib_event(lv_event_t* event)
         }
         page_diversity_calib_exit();
         lv_fun_param_delayed(page_menu_create, 500, 0);
+        return;
+    }
+
+    if (current_state == STATE_INTRO) {
+        current_state = STATE_FLOOR_SETUP;
+        update_ui();
         return;
     }
 
@@ -292,7 +317,7 @@ static void page_diversity_calib_exit(void)
 //  Create 
 void page_diversity_calib_create(void)
 {
-    current_state = STATE_FLOOR_SETUP;
+    current_state = STATE_INTRO;
     sample_index  = 0;
     floor_a = floor_b = peak_a = peak_b = 0;
     initializing  = true;
@@ -319,32 +344,34 @@ void page_diversity_calib_create(void)
     lv_obj_set_style_text_font(instruction_label, &lv_font_montserrat_12, 0);
     lv_obj_set_style_text_color(instruction_label, lv_color_make(255, 255, 255), 0);
     lv_obj_set_pos(instruction_label, 2, 14);
-    lv_obj_set_size(instruction_label, 156, 36);
+    lv_obj_set_size(instruction_label, 156, 42);  // 3 lines × ~14px = 42px
     lv_label_set_long_mode(instruction_label, LV_LABEL_LONG_WRAP);
     lv_label_set_text(instruction_label, "");
 
-    //  Live RSSI
+    //  Live RSSI — row at y=57: instruction ends at y=55 (h=42), progress bar at y=74
     rssi_a_label = lv_label_create(calib_contain);
     lv_obj_set_style_text_font(rssi_a_label, &lv_font_montserrat_12, 0);
     lv_obj_set_style_text_color(rssi_a_label, lv_color_make(0, 255, 255), 0);
-    lv_obj_set_pos(rssi_a_label, 2, 51);
-    lv_obj_set_size(rssi_a_label, 40, 13);
+    lv_obj_set_pos(rssi_a_label, 2, 57);
+    lv_obj_set_size(rssi_a_label, 46, 13);
+    lv_label_set_long_mode(rssi_a_label, LV_LABEL_LONG_CLIP);
     lv_label_set_text(rssi_a_label, "A:   0");
     lv_obj_add_flag(rssi_a_label, LV_OBJ_FLAG_HIDDEN);
 
     rssi_b_label = lv_label_create(calib_contain);
     lv_obj_set_style_text_font(rssi_b_label, &lv_font_montserrat_12, 0);
     lv_obj_set_style_text_color(rssi_b_label, lv_color_make(255, 100, 255), 0);
-    lv_obj_set_pos(rssi_b_label, 44, 51);
-    lv_obj_set_size(rssi_b_label, 42, 13);
+    lv_obj_set_pos(rssi_b_label, 50, 57);   // x=50..95, OK button at x=100 — no overlap
+    lv_obj_set_size(rssi_b_label, 46, 13);
+    lv_label_set_long_mode(rssi_b_label, LV_LABEL_LONG_CLIP);
     lv_label_set_text(rssi_b_label, "B:   0");
     lv_obj_add_flag(rssi_b_label, LV_OBJ_FLAG_HIDDEN);
 
-    //  Warning (summary)
+    //  Warning (summary only) — sits in the lower part of instruction area
     warning_label = lv_label_create(calib_contain);
     lv_obj_set_style_text_font(warning_label, &lv_font_montserrat_12, 0);
     lv_obj_set_style_text_color(warning_label, lv_color_make(255, 200, 0), 0);
-    lv_obj_set_pos(warning_label, 2, 43);
+    lv_obj_set_pos(warning_label, 2, 44);
     lv_obj_set_size(warning_label, 156, 13);
     lv_label_set_long_mode(warning_label, LV_LABEL_LONG_CLIP);
     lv_label_set_text(warning_label, "");
@@ -371,8 +398,8 @@ void page_diversity_calib_create(void)
     lv_obj_set_style_text_color(save_btn, lv_color_make(0, 0, 0), 0);
     lv_obj_set_style_text_color(save_btn, lv_color_make(255, 255, 255), LV_STATE_FOCUSED);
     lv_obj_set_style_radius(save_btn, 3, 0);
-    lv_obj_set_pos(save_btn, 88, 58);
-    lv_obj_set_size(save_btn, 68, 14);
+    lv_obj_set_pos(save_btn, 100, 57);  // x=100..155; rssi_b ends at x=95 — no overlap
+    lv_obj_set_size(save_btn, 56, 14);
     lv_label_set_text(save_btn, "OK");
 
     //  Discard button
@@ -385,7 +412,7 @@ void page_diversity_calib_create(void)
     lv_obj_set_style_text_color(discard_btn, lv_color_make(0, 0, 0), 0);
     lv_obj_set_style_text_color(discard_btn, lv_color_make(255, 255, 255), LV_STATE_FOCUSED);
     lv_obj_set_style_radius(discard_btn, 3, 0);
-    lv_obj_set_pos(discard_btn, 4, 58);
+    lv_obj_set_pos(discard_btn, 4, 57);
     lv_obj_set_size(discard_btn, 56, 14);
     lv_label_set_text(discard_btn, "Discard");
     lv_obj_add_flag(discard_btn, LV_OBJ_FLAG_HIDDEN);

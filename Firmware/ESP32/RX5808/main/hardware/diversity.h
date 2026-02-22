@@ -131,7 +131,7 @@ diversity_rx_t diversity_get_active_rx(void);
 diversity_state_t* diversity_get_state(void);
 
 // RSSI calibration — incremental (non-blocking) API
-#define DIVERSITY_CALIB_SAMPLES 50          // 50 ticks × 50ms = 2.5 s total
+#define DIVERSITY_CALIB_SAMPLES 50          // 50 × 50ms = 2.5 s per phase on a single channel
 void diversity_calibrate_floor_sample(diversity_rx_t rx, uint16_t* buf, int index);
 bool diversity_calibrate_floor_finish(uint16_t* buf, int count, uint16_t* result);
 void diversity_calibrate_peak_sample(diversity_rx_t rx, uint16_t* buf, int index);
