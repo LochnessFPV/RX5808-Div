@@ -426,31 +426,34 @@ static void page_main_update(lv_timer_t* tmr)
         }
         lv_label_set_text(diversity_mode_label, mode_str);
         
-        // Highlight active antenna with border and make label flash/larger
+        // Highlight the bar that belongs to the active antenna.
+        // Bar/label mapping (determined by the bar-fill code below):
+        //   rssi_bar0 / lv_rsss0_label -> rssi1 = adc_converted_value[1] = RX_B
+        //   rssi_bar1 / lv_rsss1_label -> rssi0 = adc_converted_value[0] = RX_A
         if (active_rx == DIVERSITY_RX_A) {
-            // RX A active - make it larger and brighter
-            lv_obj_set_style_text_font(lv_rsss0_label, &lv_font_montserrat_16, LV_STATE_DEFAULT);
-            lv_obj_set_style_text_opa(lv_rsss0_label, LV_OPA_100, LV_STATE_DEFAULT);
-            lv_obj_set_style_text_color(lv_rsss0_label, lv_color_make(0, 255, 255), LV_STATE_DEFAULT);  // Bright cyan
-            lv_obj_set_style_border_width(rssi_bar0, 2, LV_PART_MAIN);
-            lv_obj_set_style_border_color(rssi_bar0, lv_color_make(0, 255, 0), LV_PART_MAIN);
-            // RX B inactive - smaller and dimmer
-            lv_obj_set_style_text_font(lv_rsss1_label, &lv_font_montserrat_12, LV_STATE_DEFAULT);
-            lv_obj_set_style_text_opa(lv_rsss1_label, LV_OPA_60, LV_STATE_DEFAULT);
-            lv_obj_set_style_text_color(lv_rsss1_label, lv_color_make(200, 0, 200), LV_STATE_DEFAULT);
-            lv_obj_set_style_border_width(rssi_bar1, 0, LV_PART_MAIN);
-        } else {
-            // RX B active - make it larger and brighter
+            // RX A active -> highlight rssi_bar1 / lv_rsss1_label
             lv_obj_set_style_text_font(lv_rsss1_label, &lv_font_montserrat_16, LV_STATE_DEFAULT);
             lv_obj_set_style_text_opa(lv_rsss1_label, LV_OPA_100, LV_STATE_DEFAULT);
-            lv_obj_set_style_text_color(lv_rsss1_label, lv_color_make(255, 0, 255), LV_STATE_DEFAULT);  // Bright magenta
+            lv_obj_set_style_text_color(lv_rsss1_label, lv_color_make(0, 255, 255), LV_STATE_DEFAULT);  // Bright cyan
             lv_obj_set_style_border_width(rssi_bar1, 2, LV_PART_MAIN);
             lv_obj_set_style_border_color(rssi_bar1, lv_color_make(0, 255, 0), LV_PART_MAIN);
-            // RX A inactive - smaller and dimmer
+            // RX B inactive - smaller and dimmer
             lv_obj_set_style_text_font(lv_rsss0_label, &lv_font_montserrat_12, LV_STATE_DEFAULT);
             lv_obj_set_style_text_opa(lv_rsss0_label, LV_OPA_60, LV_STATE_DEFAULT);
-            lv_obj_set_style_text_color(lv_rsss0_label, lv_color_make(0, 0, 255), LV_STATE_DEFAULT);
+            lv_obj_set_style_text_color(lv_rsss0_label, lv_color_make(200, 0, 200), LV_STATE_DEFAULT);
             lv_obj_set_style_border_width(rssi_bar0, 0, LV_PART_MAIN);
+        } else {
+            // RX B active -> highlight rssi_bar0 / lv_rsss0_label
+            lv_obj_set_style_text_font(lv_rsss0_label, &lv_font_montserrat_16, LV_STATE_DEFAULT);
+            lv_obj_set_style_text_opa(lv_rsss0_label, LV_OPA_100, LV_STATE_DEFAULT);
+            lv_obj_set_style_text_color(lv_rsss0_label, lv_color_make(255, 0, 255), LV_STATE_DEFAULT);  // Bright magenta
+            lv_obj_set_style_border_width(rssi_bar0, 2, LV_PART_MAIN);
+            lv_obj_set_style_border_color(rssi_bar0, lv_color_make(0, 255, 0), LV_PART_MAIN);
+            // RX A inactive - smaller and dimmer
+            lv_obj_set_style_text_font(lv_rsss1_label, &lv_font_montserrat_12, LV_STATE_DEFAULT);
+            lv_obj_set_style_text_opa(lv_rsss1_label, LV_OPA_60, LV_STATE_DEFAULT);
+            lv_obj_set_style_text_color(lv_rsss1_label, lv_color_make(0, 0, 255), LV_STATE_DEFAULT);
+            lv_obj_set_style_border_width(rssi_bar1, 0, LV_PART_MAIN);
         }
     }
     
@@ -464,7 +467,7 @@ static void page_main_update(lv_timer_t* tmr)
         // Dynamic RSSI bar colors based on signal strength
         lv_color_t color0, color1;
         
-        // RX A (rssi1) color
+        // rssi_bar0 shows RX_B (rssi1) color
         if (rssi1 >= 70) {
             color0 = lv_color_make(0, 255, 0);  // Green - excellent
         } else if (rssi1 >= 40) {
@@ -474,7 +477,7 @@ static void page_main_update(lv_timer_t* tmr)
         }
         lv_obj_set_style_bg_color(rssi_bar0, color0, LV_PART_INDICATOR);
         
-        // RX B (rssi0) color
+        // rssi_bar1 shows RX_A (rssi0) color
         if (rssi0 >= 70) {
             color1 = lv_color_make(0, 255, 0);  // Green - excellent
         } else if (rssi0 >= 40) {

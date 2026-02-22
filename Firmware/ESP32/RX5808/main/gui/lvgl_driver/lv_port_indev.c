@@ -336,7 +336,7 @@ static uint32_t keypad_get_key(void)
 
     key_raw = RX5808_ADC_Read_Raw(KEY_ADC_CHAN);
     if(key_raw > 10 && key_raw < 4090) {  // suppress true idle (4095) and floating noise
-        printf("KEY_ADC_V: %d\n", key_raw);
+        // DEBUG removed: printf("KEY_ADC_V: %d\n", key_raw);  // was flooding UART on every keypress
     }
     if(key_raw>3000&&key_raw<3500)
         return LV_KEY_UP;
