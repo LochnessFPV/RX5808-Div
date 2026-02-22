@@ -73,6 +73,12 @@ static uint32_t g_switch_timestamps[SWITCH_HISTORY_SIZE] = {0};
 static uint8_t g_switch_history_index = 0;
 
 /**
+ * @brief FreeRTOS task function that drives the diversity update loop (fix N).
+ * Forward-declared here; defined after diversity_init().
+ */
+static void diversity_task_fn(void *param);
+
+/**
  * @brief Initialize diversity system
  */
 void diversity_init(void) {
@@ -106,6 +112,43 @@ void diversity_init(void) {
     
     ESP_LOGI(TAG, "Diversity initialized - Mode: %s", 
              diversity_mode_params[g_diversity_state.mode].name);
+
+    // Spawn the diversity update task on Core 1 (fix N + J).
+    //
+    // Running diversity_update() in its own FreeRTOS task instead of inside
+    // the LVGL timer callback ensures that RX5808_Set_Freq() (which blocks
+    // ~50 ms during PLL settling) never stalls the LVGL rendering loop.
+    // It also guarantees diversity runs regardless of which GUI page is open.
+    //
+    // The task calls diversity_update() in a tight 5 ms loop; the function
+    // itself is internally rate-limited (10 ms at 100 Hz or 50 ms at 20 Hz),
+    // so excess calls return immediately at negligible cost.
+    xTaskCreatePinnedToCore(
+        diversity_task_fn,  // forward-declared below
+        "diversity",
+        4096,
+        NULL,
+        6,      // priority 6 — above LVGL (5), keeps RF switching responsive
+        NULL,
+        1       // Core 1 — alongside the RSSI and beep tasks
+    );
+}
+
+/**
+ * @brief FreeRTOS task that drives the diversity update loop (fix N).
+ *
+ * Called at 200 Hz nominal; diversity_update() self-rate-limits to 100 Hz or
+ * 20 Hz depending on flight activity, so extra calls simply return early.
+ * Pinned to Core 1 so any blocking RX5808_Set_Freq() call never touches Core 0
+ * (LVGL).
+ */
+static void diversity_task_fn(void *param)
+{
+    (void)param;
+    while (1) {
+        diversity_update();
+        vTaskDelay(pdMS_TO_TICKS(5)); // 200 Hz nominal; function self-rate-limits
+    }
 }
 
 /**

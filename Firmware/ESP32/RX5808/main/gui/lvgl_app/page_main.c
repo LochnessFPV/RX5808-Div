@@ -369,9 +369,11 @@ static void event_callback(lv_event_t* event)
 
 static void page_main_update(lv_timer_t* tmr)
 {
-    // Update diversity algorithm (runs at 250Hz internally with timer checks)
-    diversity_update();
-    
+    // NOTE: diversity_update() was moved to a dedicated FreeRTOS task
+    // (diversity_task_fn in diversity.c, spawned from diversity_init) so that
+    // RX5808_Set_Freq() — which blocks ~50 ms during PLL settling — never
+    // stalls the LVGL rendering loop (fixes N + J).
+
     // Check for ExpressLRS backpack activity (safe task context)
     #if BACKPACK_DETECTION_ENABLED
     RX5808_Check_Backpack_Activity();

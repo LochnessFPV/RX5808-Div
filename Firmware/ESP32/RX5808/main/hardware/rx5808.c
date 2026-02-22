@@ -68,6 +68,9 @@ static bool Band_X_Loaded = false;
 
 // NVS keys for Band X
 #define NVS_NAMESPACE_BANDX "band_x"
+// Current format (since v1.8.x): single blob storing uint16_t[8]
+#define NVS_KEY_BANDX_FREQS "x_freqs"
+// Legacy per-channel keys (pre-v1.8.x) — kept only for one-time migration on upgrade
 #define NVS_KEY_BANDX_CH1 "x_ch1"
 #define NVS_KEY_BANDX_CH2 "x_ch2"
 #define NVS_KEY_BANDX_CH3 "x_ch3"
@@ -291,6 +294,24 @@ void Soft_SPI_Send_One_Bit(uint8_t bit)
 
 void Send_Register_Data(uint8_t addr,uint32_t data)   
 {
+    // Serialise all SPI accesses with a single mutex (fix M).
+    //
+    // The hardware SPI path uses spi_device_queue_trans() followed by
+    // spi_device_get_trans_result().  Although spi_device_queue_trans() is
+    // internally queue-safe, the queue/get pair is NOT atomic: a second task
+    // calling queue_trans while the first task is inside get_trans_result
+    // could steal the transaction result.  Since v1.8.x introduced a
+    // dedicated diversity_task that calls RX5808_Set_Freq() concurrently with
+    // the ELRS backpack task, the mutex must wrap both the hardware and soft-
+    // SPI branches.
+    //
+    // Note: spi_mutex is created at the very start of RX5808_Init(), before
+    // any tasks that call Send_Register_Data() are spawned, so it is always
+    // valid here.
+    if (spi_mutex != NULL) {
+        xSemaphoreTake(spi_mutex, portMAX_DELAY);
+    }
+
   if (rx5808_spi_initialized && rx5808_spi != NULL) {
       // Hardware SPI with DMA (v1.7.1)
       // RX5808 protocol: 4-bit addr + 1-bit R/W + 20-bit data = 25 bits (LSB first)
@@ -324,11 +345,6 @@ void Send_Register_Data(uint8_t addr,uint32_t data)
       }
   } else {
       // Fallback to bit-banged SPI if hardware SPI fails
-      // Take mutex before accessing SPI bus
-      if (spi_mutex != NULL) {
-          xSemaphoreTake(spi_mutex, portMAX_DELAY);
-      }
-      
       gpio_set_level(RX5808_CS, 0);
       uint8_t read_write=1;   //1 write     0 read
      
@@ -341,12 +357,11 @@ void Send_Register_Data(uint8_t addr,uint32_t data)
 	  gpio_set_level(RX5808_CS, 1);
 	  gpio_set_level(RX5808_SCLK, 0);
 	  gpio_set_level(RX5808_MOSI, 0);
-	  
-	  // Release mutex after SPI access
-	  if (spi_mutex != NULL) {
-	      xSemaphoreGive(spi_mutex);
-	  }
   }
+
+    if (spi_mutex != NULL) {
+        xSemaphoreGive(spi_mutex);
+    }
 }
 
 void RX5808_Set_Freq(uint16_t Fre)   
@@ -800,21 +815,18 @@ void RX5808_Save_Band_X_To_NVS(void)
 		return;
 	}
 	
-	const char* keys[8] = {
-		NVS_KEY_BANDX_CH1, NVS_KEY_BANDX_CH2, NVS_KEY_BANDX_CH3, NVS_KEY_BANDX_CH4,
-		NVS_KEY_BANDX_CH5, NVS_KEY_BANDX_CH6, NVS_KEY_BANDX_CH7, NVS_KEY_BANDX_CH8
-	};
-	
-	for (uint8_t i = 0; i < 8; i++) {
-		err = nvs_set_u16(nvs_handle, keys[i], Band_X_Custom_Freq[i]);
-		if (err != ESP_OK) {
-			ESP_LOGW(TAG, "Failed to save Band X CH%d: %s", i + 1, esp_err_to_name(err));
-		}
+	// Store all 8 custom frequencies as a single 16-byte blob (fix L).
+	// This reduces NVS write amplification from 8 writes to 1 and makes
+	// the save atomic so a power-loss mid-save cannot corrupt a subset of channels.
+	err = nvs_set_blob(nvs_handle, NVS_KEY_BANDX_FREQS,
+	                   Band_X_Custom_Freq, sizeof(Band_X_Custom_Freq));
+	if (err != ESP_OK) {
+		ESP_LOGW(TAG, "Failed to save Band X blob: %s", esp_err_to_name(err));
 	}
 	
 	err = nvs_commit(nvs_handle);
 	if (err == ESP_OK) {
-		ESP_LOGI(TAG, "Band X frequencies saved to NVS");
+		ESP_LOGI(TAG, "Band X frequencies saved to NVS (blob)");
 	} else {
 		ESP_LOGE(TAG, "Failed to commit Band X to NVS: %s", esp_err_to_name(err));
 	}
@@ -828,33 +840,47 @@ void RX5808_Save_Band_X_To_NVS(void)
 void RX5808_Load_Band_X_From_NVS(void)
 {
 	nvs_handle_t nvs_handle;
-	esp_err_t err = nvs_open(NVS_NAMESPACE_BANDX, NVS_READONLY, &nvs_handle);
+	// Need READWRITE so that we can re-save after a legacy migration in the same open
+	esp_err_t err = nvs_open(NVS_NAMESPACE_BANDX, NVS_READWRITE, &nvs_handle);
 	
 	if (err != ESP_OK) {
 		ESP_LOGI(TAG, "No saved Band X data, using defaults");
 		return;
 	}
 	
-	const char* keys[8] = {
+	// Try current blob format first (written since v1.8.x, fix L)
+	size_t blob_size = sizeof(Band_X_Custom_Freq);
+	err = nvs_get_blob(nvs_handle, NVS_KEY_BANDX_FREQS, Band_X_Custom_Freq, &blob_size);
+	if (err == ESP_OK && blob_size == sizeof(Band_X_Custom_Freq)) {
+		ESP_LOGI(TAG, "Band X frequencies loaded from NVS (blob)");
+		nvs_close(nvs_handle);
+		return;
+	}
+	
+	// Migration path: firmware prior to v1.8.x stored 8 separate u16 keys.
+	// Read them, migrate the data into the blob format, then save so subsequent
+	// boots use the faster, atomic blob approach.
+	ESP_LOGI(TAG, "Band X blob not found — trying legacy per-key format (one-time migration)");
+	const char* legacy_keys[8] = {
 		NVS_KEY_BANDX_CH1, NVS_KEY_BANDX_CH2, NVS_KEY_BANDX_CH3, NVS_KEY_BANDX_CH4,
 		NVS_KEY_BANDX_CH5, NVS_KEY_BANDX_CH6, NVS_KEY_BANDX_CH7, NVS_KEY_BANDX_CH8
 	};
-	
+
 	bool any_loaded = false;
 	for (uint8_t i = 0; i < 8; i++) {
 		uint16_t freq;
-		err = nvs_get_u16(nvs_handle, keys[i], &freq);
-		if (err == ESP_OK) {
+		if (nvs_get_u16(nvs_handle, legacy_keys[i], &freq) == ESP_OK) {
 			Band_X_Custom_Freq[i] = freq;
 			any_loaded = true;
 		}
 	}
-	
-	if (any_loaded) {
-		ESP_LOGI(TAG, "Band X frequencies loaded from NVS");
-	}
-	
 	nvs_close(nvs_handle);
+
+	if (any_loaded) {
+		ESP_LOGI(TAG, "Band X loaded from legacy keys — converting to blob format");
+		// Save immediately using the new blob path so next boot is fast
+		RX5808_Save_Band_X_To_NVS();
+	}
 }
 
 /**
