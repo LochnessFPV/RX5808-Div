@@ -7,6 +7,7 @@
 #include "diversity.h"
 #include "rx5808.h"
 #include "hwvers.h"
+#include "beep.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "nvs_flash.h"
@@ -684,6 +685,10 @@ void diversity_update(void) {
     // Decide whether to switch
     if (diversity_should_switch(state, params)) {
         diversity_perform_switch(state);
+        // Audio feedback: double-click on every antenna switch
+        // Called here (task context) rather than inside the IRAM_ATTR function
+        // to keep the IRAM path free of non-ISR-safe FreeRTOS queue calls.
+        beep_play_double();
     }
 }
 

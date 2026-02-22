@@ -1,5 +1,6 @@
 #include "fan.h"
 #include "driver/ledc.h"
+#include "driver/temperature_sensor.h"
 #include "hwvers.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -7,6 +8,11 @@
 #include <stdint.h>
 
 static const char* TAG_FAN = "FAN";
+
+// Official ESP-IDF v5.x temperature sensor handle
+// Replaces the undocumented temprature_sens_read() ROM call which returned
+// uncalibrated Fahrenheit values and had ±5°C accuracy.
+static temperature_sensor_handle_t tsens_handle = NULL;
 
 // User-configured floor speed (saved to EEPROM, returned by fan_get_speed)
 volatile uint8_t fan_speed = 100;
@@ -16,9 +22,6 @@ static volatile uint8_t fan_speed_actual = 100;
 
 // Last die temperature reading (degrees C)
 static volatile float thermal_temp_c = 25.0f;
-
-// ESP32 ROM die temperature sensor — returns raw Fahrenheit value
-extern uint8_t temprature_sens_read(void);
 
 // Thermal fan curve thresholds (die temp runs ~10-15 C above ambient)
 #define THERMAL_TEMP_IDLE   48.0f
@@ -100,18 +103,11 @@ static uint8_t thermal_curve(float temp_c)
 
 static void thermal_task(void* param)
 {
-    // Discard the first 2 readings — the ESP32 die sensor is unreliable
-    // until the ADC stabilises after power-on (~2 s)
-    vTaskDelay(pdMS_TO_TICKS(2000));
-    temprature_sens_read();
-    vTaskDelay(pdMS_TO_TICKS(500));
-    temprature_sens_read();
-    vTaskDelay(pdMS_TO_TICKS(500));
-
     while (1) {
-        // temprature_sens_read() returns degrees Fahrenheit (ESP32 ROM)
-        uint8_t raw_f = temprature_sens_read();
-        float temp_c  = ((float)raw_f - 32.0f) / 1.8f;
+        float temp_c = 25.0f;
+        if (temperature_sensor_get_celsius(tsens_handle, &temp_c) != ESP_OK) {
+            ESP_LOGW(TAG_FAN, "Failed to read temperature sensor");
+        }
         thermal_temp_c = temp_c;
 
         uint8_t thermal = thermal_curve(temp_c);
@@ -132,6 +128,13 @@ static void thermal_task(void* param)
 
 void thermal_control_init(void)
 {
+    // Install and enable the official ESP-IDF temperature sensor driver.
+    // The range 20–100 °C covers normal idle through max throttle conditions.
+    temperature_sensor_config_t tsens_cfg = TEMPERATURE_SENSOR_CONFIG_DEFAULT(20, 100);
+    ESP_ERROR_CHECK(temperature_sensor_install(&tsens_cfg, &tsens_handle));
+    ESP_ERROR_CHECK(temperature_sensor_enable(tsens_handle));
+    ESP_LOGI(TAG_FAN, "Temperature sensor driver installed");
+
     xTaskCreate(thermal_task, "thermal", 3072, NULL, 1, NULL);
     ESP_LOGI(TAG_FAN, "Thermal fan control started");
 }
