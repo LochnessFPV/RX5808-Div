@@ -62,7 +62,11 @@ uint16_t adc_converted_value[3]={1024,1024,1024};
 // RSSI filtering buffers for smoother readings
 static uint16_t rssi0_filter_buffer[RSSI_FILTER_SIZE] = {0};
 static uint16_t rssi1_filter_buffer[RSSI_FILTER_SIZE] = {0};
-static uint8_t rssi_filter_index = 0;
+// Each buffer has its own independent write-index so that calling
+// Rx5808_Get_Precentage0() and Rx5808_Get_Precentage1() in any order
+// never advances the other buffer's cursor out of phase.
+static uint8_t rssi0_filter_index = 0;
+static uint8_t rssi1_filter_index = 0;
 
 // Band X (User Favorites) custom frequency storage
 // These are modifiable copies of Band X frequencies
@@ -520,10 +524,11 @@ float Rx5808_Calculate_RSSI_Precentage(uint16_t value, uint16_t min, uint16_t ma
    return precent;   
 }
 
-// Apply moving average filter to RSSI value for smoother readings
-static uint16_t filter_rssi(uint16_t new_value, uint16_t *buffer) {
-    buffer[rssi_filter_index] = new_value;
-    rssi_filter_index = (rssi_filter_index + 1) % RSSI_FILTER_SIZE;
+// Apply moving average filter to RSSI value for smoother readings.
+// index must be a pointer to the per-buffer write cursor (rssi0/1_filter_index).
+static uint16_t filter_rssi(uint16_t new_value, uint16_t *buffer, uint8_t *index) {
+    buffer[*index] = new_value;
+    *index = (*index + 1) % RSSI_FILTER_SIZE;
     
     uint32_t sum = 0;
     for(int i = 0; i < RSSI_FILTER_SIZE; i++) {
@@ -535,14 +540,14 @@ static uint16_t filter_rssi(uint16_t new_value, uint16_t *buffer) {
 float Rx5808_Get_Precentage0()
 {
     // Apply smoothing filter before calculating percentage
-    uint16_t filtered_value = filter_rssi(adc_converted_value[0], rssi0_filter_buffer);
+    uint16_t filtered_value = filter_rssi(adc_converted_value[0], rssi0_filter_buffer, &rssi0_filter_index);
     return Rx5808_Calculate_RSSI_Precentage(filtered_value, Rx5808_RSSI_Ad_Min0, Rx5808_RSSI_Ad_Max0);
 }
 
 float Rx5808_Get_Precentage1()
 {
     // Apply smoothing filter before calculating percentage
-    uint16_t filtered_value = filter_rssi(adc_converted_value[1], rssi1_filter_buffer);
+    uint16_t filtered_value = filter_rssi(adc_converted_value[1], rssi1_filter_buffer, &rssi1_filter_index);
     return Rx5808_Calculate_RSSI_Precentage(filtered_value, Rx5808_RSSI_Ad_Min1, Rx5808_RSSI_Ad_Max1);
 }
 

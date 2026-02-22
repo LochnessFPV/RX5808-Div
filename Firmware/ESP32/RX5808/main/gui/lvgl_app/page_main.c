@@ -22,8 +22,6 @@
 #include "diversity.h"
 #include "navigation.h"
 #include "../quick_menu.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
 #include "led.h"
 
 //LV_FONT_DECLARE(lv_font_chinese_16);
@@ -87,6 +85,34 @@ static uint32_t hold_left_start_time = 0;
 static bool hold_left_menu_opened = false;
 #define HOLD_LEFT_MENU_MS 1500  // ms to hold LEFT while locked to open quick menu
 
+// Deferred navigation: stores the action selected in the quick menu so that
+// the one-shot lv_timer callback can launch the correct page after page_main
+// has fully torn itself down (avoids blocking Core 0 with vTaskDelay).
+static quick_action_t pending_nav_action = QUICK_ACTION_EXIT;
+
+static void deferred_nav_timer_cb(lv_timer_t* tmr)
+{
+    lv_timer_del(tmr);  // one-shot: remove immediately after firing
+    switch (pending_nav_action) {
+        case QUICK_ACTION_SCAN:
+            page_scan_table_create_from_main();
+            break;
+        case QUICK_ACTION_SPECTRUM:
+            page_spectrum_create(false, 0);
+            break;
+        case QUICK_ACTION_CALIBRATION:
+            page_diversity_calib_create();
+            break;
+        case QUICK_ACTION_BAND_X:
+            page_bandx_channel_select_create();
+            break;
+        case QUICK_ACTION_SETTINGS:
+            page_setup_create();
+            break;
+        default:
+            break;
+    }
+}
 
 static void page_main_exit(void);
 static void page_main_group_create(void);
@@ -112,33 +138,12 @@ static void quick_menu_action_handler(quick_action_t action) {
 
     page_main_exit();
 
-    // Small delay for smooth transition
-    vTaskDelay(pdMS_TO_TICKS(50));
-
-    switch (action) {
-        case QUICK_ACTION_SCAN:
-            page_scan_table_create_from_main();
-            break;
-
-        case QUICK_ACTION_SPECTRUM:
-            page_spectrum_create(false, 0);
-            break;
-
-        case QUICK_ACTION_CALIBRATION:
-            page_diversity_calib_create();
-            break;
-
-        case QUICK_ACTION_BAND_X:
-            page_bandx_channel_select_create();
-            break;
-
-        case QUICK_ACTION_SETTINGS:
-            page_setup_create();
-            break;
-
-        default:
-            break;
-    }
+    // Defer page creation with a non-blocking 50 ms lv_timer so that
+    // page_main_exit() fully tears down its LVGL objects before the next
+    // page builds its own.  The old vTaskDelay(50) blocked Core 0's LVGL
+    // task, stalling rendering and input for the entire delay period.
+    pending_nav_action = action;
+    lv_timer_create(deferred_nav_timer_cb, 50, NULL);
 }
 
 static void locked_adjust_channel(int8_t direction, bool is_band_x)
