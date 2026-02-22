@@ -733,6 +733,23 @@ void diversity_update(void) {
         // to keep the IRAM path free of non-ISR-safe FreeRTOS queue calls.
         beep_play_double();
     }
+
+    // --- Point E: low-signal audio alert ---
+    // Fires a long beep when BOTH receivers report weak signal (rssi_norm < 15),
+    // indicating the aircraft is likely out of range on all antennas.
+    // Rate-limited to once every 5 s so the cockpit isn't flooded with beeps.
+    // Only activates after calibration is complete so boot noise doesn't trigger it.
+#define LOW_SIGNAL_THRESHOLD   15   // rssi_norm below this on both RX = "weak"
+#define LOW_SIGNAL_REPEAT_MS 5000  // minimum gap between consecutive alert beeps
+    if (state->cal_a.calibrated && state->cal_b.calibrated) {
+        if (state->rx_a.rssi_norm < LOW_SIGNAL_THRESHOLD &&
+            state->rx_b.rssi_norm < LOW_SIGNAL_THRESHOLD) {
+            if (now - state->low_signal_beep_ms >= LOW_SIGNAL_REPEAT_MS) {
+                state->low_signal_beep_ms = now;
+                beep_play_long();   // long single tone = range warning
+            }
+        }
+    }
 }
 
 /**

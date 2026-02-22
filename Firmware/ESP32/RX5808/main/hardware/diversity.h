@@ -154,6 +154,9 @@ typedef struct {
     uint32_t           freq_shift_cooldown_ms; // Don't re-trigger until this timestamp
     uint8_t            freq_shift_baseline;    // rssi_norm of active RX at trigger time
 
+    // Point E: low-signal audio alert state
+    uint32_t low_signal_beep_ms;   // Timestamp of last low-signal beep (ms)
+
     // Telemetry
     int8_t rssi_delta;             // RSSI_A - RSSI_B (signed)
     uint8_t switches_per_min;      // Recent switch rate
