@@ -557,8 +557,6 @@ float Get_Battery_Voltage()
 void DMA2_Stream0_IRQHandler(void)     
 {
 	//static uint16_t count=0;
-	static uint8_t rx5808_cur_receiver_best=rx5808_receiver_count;
-	static uint8_t rx5808_pre_receiver_best=rx5808_receiver_count;
 
 	while(1)
 	{
@@ -573,6 +571,8 @@ void DMA2_Stream0_IRQHandler(void)
         adc_oneshot_read(adc1_handle, RX5808_RSSI0_CHAN, &_adc_raw); sum0 += _adc_raw;
         adc_oneshot_read(adc1_handle, RX5808_RSSI1_CHAN, &_adc_raw); sum1 += _adc_raw;
     }
+    // Note: static cur/pre receiver_best locals removed — only used in old simple-diversity
+    // else-branch which has been deleted (see below).
     adc_converted_value[0] = sum0 >> 4;
     adc_converted_value[1] = sum1 >> 4;
     adc_oneshot_read(adc1_handle, VBAT_ADC_CHAN, &_adc_raw);
@@ -597,39 +597,10 @@ void DMA2_Stream0_IRQHandler(void)
 		gpio_set_level(RX5808_SWITCH0, 0);
 		gpio_set_level(RX5808_SWITCH1, 0);
 	}
-	else
-	{
-		float rssi0=Rx5808_Get_Precentage0();
-		float rssi1=Rx5808_Get_Precentage1();
-		float rssi_diff=0;
-		if(rssi0>rssi1){
-			rssi_diff=rssi0-rssi1;
-		}
-		else{
-			rssi_diff=rssi1-rssi0;
-		}
-		if(rssi_diff>=RX5808_TOGGLE_DEAD_ZONE)
-		{
-			if(rssi0>rssi1){
-			rx5808_cur_receiver_best=rx5808_receiver0;
-			}
-			else{
-			rx5808_cur_receiver_best=rx5808_receiver1;
-			}
-			if(rx5808_cur_receiver_best==rx5808_pre_receiver_best){
-				if(rx5808_cur_receiver_best==rx5808_receiver0){
-					gpio_set_level(RX5808_SWITCH0, 1);
-					gpio_set_level(RX5808_SWITCH1, 0);
-				}
-				else if(rx5808_cur_receiver_best==rx5808_receiver1) {
-					gpio_set_level(RX5808_SWITCH1, 1);
-					gpio_set_level(RX5808_SWITCH0, 0);
-				}
-			}	
-			rx5808_pre_receiver_best=rx5808_cur_receiver_best;		
-		}
-
-		}
+	// sig_src == 0 (Auto): diversity.c task owns GPIO switching via
+	// diversity_perform_switch(). Do NOT write SWITCH0/SWITCH1 here —
+	// the old simple algorithm ran with inverted polarity vs diversity.c
+	// and caused them to fight each other on every 25 ms cycle.
 	//	(count==100)?(count=0):(++count);
 	vTaskDelay(25 / portTICK_PERIOD_MS);  // Changed from 10ms to 25ms to reduce ADC polling rate (thermal optimization)
 	}
