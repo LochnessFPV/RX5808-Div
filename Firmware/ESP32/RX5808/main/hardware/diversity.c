@@ -147,7 +147,13 @@ static void diversity_task_fn(void *param)
     (void)param;
     while (1) {
         diversity_update();
-        vTaskDelay(pdMS_TO_TICKS(5)); // 200 Hz nominal; function self-rate-limits
+        // Delay at least 1 full tick so IDLE1 gets CPU time.
+        // pdMS_TO_TICKS(5) rounds to 0 on a 100 Hz tick config, making
+        // vTaskDelay(0) a no-op that starves the idle task and triggers
+        // the task watchdog.  vTaskDelay(1) always blocks for 1 tick
+        // (~10 ms on 100 Hz), well within the 100 Hz / 20 Hz rate-limit
+        // that diversity_update() enforces internally.
+        vTaskDelay(1);
     }
 }
 
