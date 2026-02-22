@@ -18,6 +18,10 @@ static const char *TAG = "RX5808";
 
 // SPI Bus Mutex - protects soft SPI from concurrent access
 static SemaphoreHandle_t spi_mutex = NULL;
+// Serialises all adc_oneshot_read() calls so that the Core-1 RSSI burst and
+// the Core-0 LVGL keypad reader never race on the same adc1_handle.
+// adc_oneshot_read() is not thread-safe per IDF documentation.
+static SemaphoreHandle_t adc_mutex = NULL;
 
 // Hardware SPI device handle for RX5808 (DMA-accelerated)
 static spi_device_handle_t rx5808_spi = NULL;
@@ -144,7 +148,9 @@ void RX5808_RSSI_ADC_Init(void)
 int RX5808_ADC_Read_Raw(int channel)
 {
     int raw = 0;
+    if (adc_mutex != NULL) xSemaphoreTake(adc_mutex, portMAX_DELAY);
     adc_oneshot_read(adc1_handle, (adc_channel_t)channel, &raw);
+    if (adc_mutex != NULL) xSemaphoreGive(adc_mutex);
     return raw;
 }
 
@@ -203,6 +209,12 @@ void RX5808_Init()
     spi_mutex = xSemaphoreCreateMutex();
     if (spi_mutex == NULL) {
         ESP_LOGE(TAG, "Failed to create SPI mutex!");
+    }
+    // Create ADC mutex — must exist before RX5808_RSSI_ADC_Init() and before
+    // the RSSI task starts, so any early RX5808_ADC_Read_Raw() call is safe.
+    adc_mutex = xSemaphoreCreateMutex();
+    if (adc_mutex == NULL) {
+        ESP_LOGE(TAG, "Failed to create ADC mutex!");
     }
     
     // Initialize hardware SPI for RX5808 (DMA-accelerated)
@@ -551,8 +563,11 @@ void DMA2_Stream0_IRQHandler(void)
 	while(1)
 	{
     uint32_t sum0=0,sum1=0;
-    
-int _adc_raw;
+
+    int _adc_raw;
+    // Hold adc_mutex for the entire burst so RX5808_ADC_Read_Raw() (Core 0,
+    // LVGL keypad) cannot interleave and get a 0 back from a busy unit.
+    if (adc_mutex != NULL) xSemaphoreTake(adc_mutex, portMAX_DELAY);
     for(int i=0;i<16;i++)
     {
         adc_oneshot_read(adc1_handle, RX5808_RSSI0_CHAN, &_adc_raw); sum0 += _adc_raw;
@@ -562,6 +577,7 @@ int _adc_raw;
     adc_converted_value[1] = sum1 >> 4;
     adc_oneshot_read(adc1_handle, VBAT_ADC_CHAN, &_adc_raw);
     adc_converted_value[2] = (uint16_t)_adc_raw;
+    if (adc_mutex != NULL) xSemaphoreGive(adc_mutex);
 		
 	int sig_src = Rx5808_Signal_Source;
 	// 关断则都为0
