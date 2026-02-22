@@ -793,7 +793,18 @@ void diversity_calibrate_load(void) {
         ESP_LOGI(TAG, "RX B calibration loaded: floor=%d peak=%d",
                  g_diversity_state.cal_b.floor_raw, g_diversity_state.cal_b.peak_raw);
     }
-    
+
+    // F: load persisted diversity mode (Race / Freestyle / Long-Range).
+    // diversity_set_mode() already saves on every change; we restore it here
+    // so the user's preference survives a power cycle.
+    uint8_t saved_mode = 0;
+    if (nvs_get_u8(nvs_handle, NVS_KEY_MODE, &saved_mode) == ESP_OK
+            && saved_mode < DIVERSITY_MODE_COUNT) {
+        g_diversity_state.mode = (diversity_mode_t)saved_mode;
+        ESP_LOGI(TAG, "Diversity mode loaded: %s",
+                 diversity_mode_params[g_diversity_state.mode].name);
+    }
+
     nvs_close(nvs_handle);
 }
 

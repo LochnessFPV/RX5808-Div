@@ -33,32 +33,9 @@ volatile uint8_t system_lvgl_sleep_ms = 20;
 void create_cpu_stack_monitor_task();
 void cpu_stack_monitor_task(void *param);
 
-static void led_flash_task(void *param)
-{
-
-	while(1)
-	{
-         gpio_set_level(LED0_PIN, 0);
-		 vTaskDelay(300/portTICK_PERIOD_MS);
-		 gpio_set_level(LED0_PIN, 1);
-		 vTaskDelay(300/portTICK_PERIOD_MS);
-	}
-}
-
-void LED_Init()
-{ 
-    gpio_set_direction(LED0_PIN, GPIO_MODE_OUTPUT);		
-	gpio_set_level(LED0_PIN, 0);
-
-	xTaskCreatePinnedToCore((TaskFunction_t)led_flash_task,
-	                          "led_task", 
-							  512, 
-							  NULL,
-							   0,
-							    NULL, 
-								0 );
-	
-}
+// led_flash_task and LED_Init() removed (G): they wrote to LED0_PIN directly,
+// racing with led.c's pattern engine which owns the same GPIO.
+// led_init() in led.c is the sole owner of LED0_PIN at runtime.
 
 // Apply CPU frequency based on user setting
 void system_apply_cpu_freq(uint16_t freq_setting)
@@ -81,11 +58,17 @@ void system_apply_cpu_freq(uint16_t freq_setting)
 	ESP_LOGI(TAG, "Applying CPU frequency mode: %s", auto_mode ? "AUTO" : "FIXED");
     
     #ifdef CONFIG_PM_ENABLE
-    // Use power management to set frequency dynamically
+    // Use power management to set frequency dynamically.
+    // Light sleep is enabled in AUTO mode: the main loop and LVGL timer both
+    // call vTaskDelay() which satisfies the tickless-idle precondition, so the
+    // core can sleep between LVGL frames and RSSI samples for meaningful power
+    // and heat reduction.  Fixed-frequency modes keep it off to avoid wakeup
+    // latency affecting time-critical GPIO or SPI operations.
+    // Requires CONFIG_PM_ENABLE=y and CONFIG_FREERTOS_USE_TICKLESS_IDLE=1.
     esp_pm_config_esp32_t pm_config = {
 		.max_freq_mhz = freq_mhz,
 		.min_freq_mhz = auto_mode ? 80 : freq_mhz,
-        .light_sleep_enable = false
+        .light_sleep_enable = auto_mode
     };
     
     esp_err_t ret = esp_pm_configure(&pm_config);
@@ -244,14 +227,15 @@ void system_set_cpu_context_idle(bool idle)
 {
 #ifdef CONFIG_PM_ENABLE
     if (idle) {
-        // Locked/idle: cap at 80 MHz to save power/heat
+        // Locked/idle: cap at 80 MHz; enable light sleep so the core can
+        // actually power-gate while waiting for the next LVGL vTaskDelay.
         esp_pm_config_esp32_t pm = {
             .max_freq_mhz      = 80,
             .min_freq_mhz      = 80,
-            .light_sleep_enable = false
+            .light_sleep_enable = true
         };
         esp_pm_configure(&pm);
-        ESP_LOGD(TAG, "CPU context: IDLE (80 MHz)");
+        ESP_LOGD(TAG, "CPU context: IDLE (80 MHz + light sleep)");
     } else {
         // Active: restore user-configured frequency
         system_apply_cpu_freq(RX5808_Get_CPU_Freq());
