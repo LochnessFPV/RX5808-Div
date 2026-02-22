@@ -28,7 +28,8 @@ const diversity_mode_params_t diversity_mode_params[DIVERSITY_MODE_COUNT] = {
         .hysteresis_pct = 2,
         .weight_rssi = 0.85f,
         .weight_stability = 0.15f,
-        .slope_threshold = -30,
+        // Point 2: now ADC units/second. -200/s ≈ full-range drop in ~20 s → very reactive
+        .slope_threshold = -200,
         .name = "Race"
     },
     // FREESTYLE mode - balanced
@@ -38,7 +39,7 @@ const diversity_mode_params_t diversity_mode_params[DIVERSITY_MODE_COUNT] = {
         .hysteresis_pct = 4,
         .weight_rssi = 0.70f,
         .weight_stability = 0.30f,
-        .slope_threshold = -20,
+        .slope_threshold = -100, // -100/s ≈ full drop in ~40 s
         .name = "Freestyle"
     },
     // LONG_RANGE mode - stable, minimize switching
@@ -48,7 +49,7 @@ const diversity_mode_params_t diversity_mode_params[DIVERSITY_MODE_COUNT] = {
         .hysteresis_pct = 6,
         .weight_rssi = 0.75f,
         .weight_stability = 0.25f,
-        .slope_threshold = -15,
+        .slope_threshold = -50,  // -50/s ≈ full drop in ~80 s → only obvious trend
         .name = "Long Range"
     }
 };
@@ -74,21 +75,27 @@ static uint8_t g_switch_history_index = 0;
  * @brief Initialize diversity system
  */
 void diversity_init(void) {
-    ESP_LOGI(TAG, "Initializing diversity system v1.7.1");
-    
+    ESP_LOGI(TAG, "Initializing diversity system v1.8.0");
+
     memset(&g_diversity_state, 0, sizeof(diversity_state_t));
-    
+
     // Set defaults
-    g_diversity_state.mode = DIVERSITY_MODE_FREESTYLE;
+    g_diversity_state.mode      = DIVERSITY_MODE_FREESTYLE;
     g_diversity_state.active_rx = DIVERSITY_RX_A;
-    
+
+    // Point 7: AGC baseline starts at 50 (midpoint of 0-100 range) so both
+    // receivers start with zero correction and converge naturally toward their
+    // true long-term mean over the first ~10 s of stable flight.
+    g_diversity_state.rx_a.agc_baseline = 50.0f;
+    g_diversity_state.rx_b.agc_baseline = 50.0f;
+
     // Initialize calibration defaults (uncalibrated)
-    g_diversity_state.cal_a.floor_raw = 0;
-    g_diversity_state.cal_a.peak_raw = 4095;
+    g_diversity_state.cal_a.floor_raw  = 0;
+    g_diversity_state.cal_a.peak_raw   = 4095;
     g_diversity_state.cal_a.calibrated = false;
-    
-    g_diversity_state.cal_b.floor_raw = 0;
-    g_diversity_state.cal_b.peak_raw = 4095;
+
+    g_diversity_state.cal_b.floor_raw  = 0;
+    g_diversity_state.cal_b.peak_raw   = 4095;
     g_diversity_state.cal_b.calibrated = false;
     
     // Load calibration from NVS
@@ -145,43 +152,53 @@ uint8_t diversity_normalize_rssi(uint16_t raw, rssi_calibration_t* cal) {
 
 /**
  * @brief Calculate statistics (mean, variance, slope) over rolling window
+ *
+ * @param rx          Per-receiver state to update
+ * @param interval_ms Actual time elapsed since the previous sample (ms).
+ *                    Used to express slope in ADC units/second so that the
+ *                    threshold comparison in diversity_should_switch() is
+ *                    rate-invariant (same meaning at 20 Hz and 100 Hz).
  */
-void diversity_calculate_statistics(diversity_rx_state_t* rx) {
+static void diversity_calculate_statistics(diversity_rx_state_t* rx, uint32_t interval_ms) {
     if (rx->sample_count == 0) {
         return;
     }
-    
+
     // Calculate mean
     uint32_t sum = 0;
     for (uint8_t i = 0; i < rx->sample_count; i++) {
         sum += rx->rssi_samples[i];
     }
     rx->rssi_mean = sum / rx->sample_count;
-    
-    // Calculate variance (using integer math, scaled by 100)
+
+    // Calculate variance
     uint32_t variance_sum = 0;
     for (uint8_t i = 0; i < rx->sample_count; i++) {
         int32_t diff = (int32_t)rx->rssi_samples[i] - (int32_t)rx->rssi_mean;
         variance_sum += (diff * diff);
     }
     rx->rssi_variance = (uint16_t)(variance_sum / rx->sample_count);
-    
-    // Calculate slope (rate of change)
-    // Compare current mean with mean from half window ago
+
+    // Point 2: time-normalised slope in ADC units/second.
+    // half_window_ms = number of samples in half the window × interval per sample.
+    // slope = Δrssi_mean / elapsed_time → same numeric meaning regardless of
+    // whether diversity_update() is running at 20 Hz or 100 Hz.
     if (rx->sample_count >= 10) {
         uint8_t half_window = rx->sample_count / 2;
         uint8_t old_index = (rx->sample_index + DIVERSITY_MAX_SAMPLES - half_window) % DIVERSITY_MAX_SAMPLES;
-        
-        // Calculate old mean
+
         uint32_t old_sum = 0;
         for (uint8_t i = 0; i < half_window; i++) {
             uint8_t idx = (old_index + i) % DIVERSITY_MAX_SAMPLES;
             old_sum += rx->rssi_samples[idx];
         }
-        uint16_t old_mean = old_sum / half_window;
-        
-        // Slope is delta/time (normalized)
-        rx->rssi_slope = (int16_t)rx->rssi_mean - (int16_t)old_mean;
+        uint16_t old_mean = (uint16_t)(old_sum / half_window);
+
+        uint32_t half_window_ms = (uint32_t)half_window * interval_ms;
+        if (half_window_ms == 0) half_window_ms = 1; // guard against div/0 on first tick
+        // Multiply delta by 1000 to convert ms → seconds
+        rx->rssi_slope = (int16_t)(((int32_t)rx->rssi_mean - (int32_t)old_mean) * 1000
+                                   / (int32_t)half_window_ms);
     } else {
         rx->rssi_slope = 0;
     }
@@ -192,24 +209,28 @@ void diversity_calculate_statistics(diversity_rx_state_t* rx) {
  */
 void diversity_calculate_scores(diversity_rx_state_t* rx, const diversity_mode_params_t* params) {
     // Stability score: 100 - penalties for variance and slope
-    // Higher variance = less stable, higher slope magnitude = less stable
-    
-    float k_variance = 0.2f;  // Penalty coefficient for variance
-    float k_slope = 1.5f;     // Penalty coefficient for slope magnitude
-    
+    float k_variance = 0.2f;
+    // Point 2: slope is now in ADC units/second (range ~0-2000).
+    // k_slope scaled so max penalty stays similar to before (~75 pts).
+    float k_slope = 0.038f;
+
     float variance_penalty = k_variance * sqrtf((float)rx->rssi_variance);
-    float slope_penalty = k_slope * fabsf((float)rx->rssi_slope);
-    
+    float slope_penalty    = k_slope    * fabsf((float)rx->rssi_slope);
+
     int16_t stability = 100 - (int16_t)(variance_penalty + slope_penalty);
-    if (stability < 0) stability = 0;
+    if (stability < 0)   stability = 0;
     if (stability > 100) stability = 100;
-    
     rx->stability_score = (uint8_t)stability;
-    
-    // Combined score: weighted sum of RSSI and stability
-    float score = (params->weight_rssi * rx->rssi_norm) + 
-                  (params->weight_stability * rx->stability_score);
-    
+
+    // Point 7: use AGC-corrected RSSI in scoring so hardware-offset receivers
+    // are compared on a level field.  rssi_agc is populated in diversity_update()
+    // before this function is called; it equals rssi_norm during AGC warmup.
+    float rssi_for_score = (float)rx->rssi_agc;
+
+    float score = (params->weight_rssi     * rssi_for_score) +
+                  (params->weight_stability * (float)rx->stability_score);
+    if (score > 100.0f) score = 100.0f;
+    if (score <   0.0f) score =   0.0f;
     rx->combined_score = (uint8_t)score;
 }
 
@@ -305,35 +326,49 @@ bool diversity_should_switch(diversity_state_t* state, const diversity_mode_para
 
 /**
  * @brief Perform receiver switch
+ *
+ * Point 1: glitch-free GPIO sequence.
+ * Old sequence (A→B): SWITCH0=1 (both=1!), then SWITCH1=0
+ * New sequence:       both=0 first (~150 ns gap, invisible at 50 Hz field rate),
+ *                     then assert the new selection.
+ *
+ * Marked IRAM_ATTR so the function always resides in IRAM and can be called
+ * from a future ISR context without a cache-miss stall.
  */
-static void diversity_perform_switch(diversity_state_t* state) {
+static IRAM_ATTR void diversity_perform_switch(diversity_state_t* state) {
     uint32_t now = esp_timer_get_time() / 1000; // ms
-    
+
     // Toggle active receiver
     state->active_rx = (state->active_rx == DIVERSITY_RX_A) ? DIVERSITY_RX_B : DIVERSITY_RX_A;
-    
+
     // Update switch tracking
     state->last_switch_ms = now;
     state->switch_count++;
     state->time_stable_ms = 0;
     state->in_cooldown = true;
-    
+
     // Record switch timestamp for rate calculation
     g_switch_timestamps[g_switch_history_index] = now;
     g_switch_history_index = (g_switch_history_index + 1) % SWITCH_HISTORY_SIZE;
-    
-    // Hardware antenna switching - control physical RF path
+
+    // Point 1: de-assert both lines first, then assert the chosen side.
+    // This eliminates the brief "both active" glitch of the old direct assignment.
+    gpio_set_level(RX5808_SWITCH0, 0);
+    gpio_set_level(RX5808_SWITCH1, 0);
     if (state->active_rx == DIVERSITY_RX_A) {
-        // RX_A: Set SWITCH1=1, SWITCH0=0
-        gpio_set_level(RX5808_SWITCH1, 1);
-        gpio_set_level(RX5808_SWITCH0, 0);
+        gpio_set_level(RX5808_SWITCH1, 1); // RX_A: SWITCH1=1, SWITCH0=0
     } else {
-        // RX_B: Set SWITCH0=1, SWITCH1=0
-        gpio_set_level(RX5808_SWITCH0, 1);
-        gpio_set_level(RX5808_SWITCH1, 0);
+        gpio_set_level(RX5808_SWITCH0, 1); // RX_B: SWITCH0=1, SWITCH1=0
     }
-    
-    ESP_LOGI(TAG, "Switched to RX_%c (switches=%lu)", 
+
+    // Point 9: record state for outcome evaluation 200 ms from now
+    const diversity_rx_state_t* new_rx = (state->active_rx == DIVERSITY_RX_A)
+                                         ? &state->rx_a : &state->rx_b;
+    state->outcome_check_ms       = now + 200;
+    state->outcome_new_rx         = state->active_rx;
+    state->outcome_rssi_at_switch = new_rx->rssi_norm;
+
+    ESP_LOGI(TAG, "Switched to RX_%c (switches=%lu)",
              state->active_rx == DIVERSITY_RX_A ? 'A' : 'B',
              state->switch_count);
 }
@@ -384,30 +419,100 @@ void diversity_update(void) {
     state->last_sample_ms = now;
     
     // Sample raw RSSI from both receivers via ADC
-    // adc_converted_value[] is populated by DMA2_Stream0_IRQHandler in rx5808.c
-    state->rx_a.rssi_raw = adc_converted_value[0];  // RSSI A from RX5808
-    state->rx_b.rssi_raw = adc_converted_value[1];  // RSSI B from RX5808
-    
+    // adc_converted_value[] is populated by the ADC DMA handler in rx5808.c
+    state->rx_a.rssi_raw = adc_converted_value[0];
+    state->rx_b.rssi_raw = adc_converted_value[1];
+
     // Normalize RSSI
     state->rx_a.rssi_norm = diversity_normalize_rssi(state->rx_a.rssi_raw, &state->cal_a);
     state->rx_b.rssi_norm = diversity_normalize_rssi(state->rx_b.rssi_raw, &state->cal_b);
-    
+
+    // --- Point 7: software AGC ---
+    // Only update the baseline during stable flight (after 2 s without a switch)
+    // to avoid contaminating it with mid-manoeuvre swings.
+    if (state->time_stable_ms > 2000) {
+        // Slow EMA: α=0.001 → converges to true mean in ~1000 samples (~10 s @100 Hz)
+        state->rx_a.agc_baseline = state->rx_a.agc_baseline * 0.999f
+                                 + (float)state->rx_a.rssi_norm * 0.001f;
+        state->rx_b.agc_baseline = state->rx_b.agc_baseline * 0.999f
+                                 + (float)state->rx_b.rssi_norm * 0.001f;
+        if (state->rx_a.agc_sample_count < 60000) state->rx_a.agc_sample_count++;
+        if (state->rx_b.agc_sample_count < 60000) state->rx_b.agc_sample_count++;
+    }
+    // AGC-corrected RSSI: shift each receiver so its long-term mean sits at 50%.
+    // Capped at ±15 to prevent over-correction on hardware with large offsets.
+    // Correction activates after 100 stable samples (~warmup 1 s @100 Hz).
+    if (state->rx_a.agc_sample_count >= 100) {
+        int16_t corr_a = (int16_t)(50.0f - state->rx_a.agc_baseline);
+        if (corr_a >  15) corr_a =  15;
+        if (corr_a < -15) corr_a = -15;
+        int16_t agc_a = (int16_t)state->rx_a.rssi_norm + corr_a;
+        state->rx_a.rssi_agc = (agc_a < 0) ? 0 : (agc_a > 100) ? 100 : (int16_t)agc_a;
+    } else {
+        state->rx_a.rssi_agc = (int16_t)state->rx_a.rssi_norm;
+    }
+    if (state->rx_b.agc_sample_count >= 100) {
+        int16_t corr_b = (int16_t)(50.0f - state->rx_b.agc_baseline);
+        if (corr_b >  15) corr_b =  15;
+        if (corr_b < -15) corr_b = -15;
+        int16_t agc_b = (int16_t)state->rx_b.rssi_norm + corr_b;
+        state->rx_b.rssi_agc = (agc_b < 0) ? 0 : (agc_b > 100) ? 100 : (int16_t)agc_b;
+    } else {
+        state->rx_b.rssi_agc = (int16_t)state->rx_b.rssi_norm;
+    }
+
     // Store samples in rolling windows
     state->rx_a.rssi_samples[state->rx_a.sample_index] = state->rx_a.rssi_raw;
     state->rx_a.sample_index = (state->rx_a.sample_index + 1) % DIVERSITY_MAX_SAMPLES;
     if (state->rx_a.sample_count < DIVERSITY_MAX_SAMPLES) state->rx_a.sample_count++;
-    
+
     state->rx_b.rssi_samples[state->rx_b.sample_index] = state->rx_b.rssi_raw;
     state->rx_b.sample_index = (state->rx_b.sample_index + 1) % DIVERSITY_MAX_SAMPLES;
     if (state->rx_b.sample_count < DIVERSITY_MAX_SAMPLES) state->rx_b.sample_count++;
-    
-    // Calculate statistics
-    diversity_calculate_statistics(&state->rx_a);
-    diversity_calculate_statistics(&state->rx_b);
-    
+
+    // Calculate statistics — pass actual interval so slope is time-normalised (point 2)
+    diversity_calculate_statistics(&state->rx_a, time_since_last_sample);
+    diversity_calculate_statistics(&state->rx_b, time_since_last_sample);
+
     // Calculate scores
     diversity_calculate_scores(&state->rx_a, params);
     diversity_calculate_scores(&state->rx_b, params);
+
+    // --- Point 9: apply / expire preference bonuses ---
+    // Outcome check: 200 ms after a switch see if the new receiver actually improved.
+    if (state->outcome_check_ms != 0 && now >= state->outcome_check_ms) {
+        const diversity_rx_state_t* new_rx = (state->outcome_new_rx == DIVERSITY_RX_A)
+                                              ? &state->rx_a : &state->rx_b;
+        // "Improved" = rssi_norm at least 5% higher than it was at the switch moment
+        if ((int16_t)new_rx->rssi_norm > (int16_t)state->outcome_rssi_at_switch + 5) {
+            if (state->outcome_new_rx == DIVERSITY_RX_A) {
+                state->rx_a_pref_bonus        = 8.0f;
+                state->rx_a_bonus_expires_ms  = now + 5000;
+            } else {
+                state->rx_b_pref_bonus        = 8.0f;
+                state->rx_b_bonus_expires_ms  = now + 5000;
+            }
+            ESP_LOGI(TAG, "RX_%c confirmed good — preference bonus applied",
+                     state->outcome_new_rx == DIVERSITY_RX_A ? 'A' : 'B');
+        }
+        state->outcome_check_ms = 0;
+    }
+    // Expire bonuses
+    if (state->rx_a_bonus_expires_ms && now >= state->rx_a_bonus_expires_ms) {
+        state->rx_a_pref_bonus = 0.0f; state->rx_a_bonus_expires_ms = 0;
+    }
+    if (state->rx_b_bonus_expires_ms && now >= state->rx_b_bonus_expires_ms) {
+        state->rx_b_pref_bonus = 0.0f; state->rx_b_bonus_expires_ms = 0;
+    }
+    // Apply preference bonus to combined score (capped at 100)
+    if (state->rx_a_pref_bonus > 0.0f) {
+        uint16_t s = (uint16_t)state->rx_a.combined_score + (uint16_t)state->rx_a_pref_bonus;
+        state->rx_a.combined_score = (s > 100) ? 100 : (uint8_t)s;
+    }
+    if (state->rx_b_pref_bonus > 0.0f) {
+        uint16_t s = (uint16_t)state->rx_b.combined_score + (uint16_t)state->rx_b_pref_bonus;
+        state->rx_b.combined_score = (s > 100) ? 100 : (uint8_t)s;
+    }
     
     // Check receiver health
     diversity_check_receiver_health(&state->rx_a);

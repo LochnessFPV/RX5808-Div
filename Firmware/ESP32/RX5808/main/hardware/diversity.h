@@ -1,7 +1,14 @@
 /**
  * @file diversity.h
  * @brief Advanced diversity switching algorithm based on Starfish specification  
- * @version 1.7.0
+ * @version 1.8.0
+ *
+ * v1.8.0 additions:
+ *   - Point 1: glitch-free switch (de-assert both lines before asserting new)
+ *   - Point 2: time-normalised slope (ADC units/s) so threshold is rate-invariant
+ *   - Point 7: per-receiver software AGC (slow EMA baseline, ±15% correction)
+ *   - Point 9: outcome-weighted hysteresis (+8 score bonus for 5 s when a
+ *              switch is confirmed beneficial 200 ms after the event)
  * 
  * Implements intelligent diversity switching with:
  * - RSSI normalization and calibration
@@ -81,7 +88,12 @@ typedef struct {
     // Scores
     uint8_t stability_score;       // Stability metric (0-100)
     uint8_t combined_score;        // Final weighted score (0-100)
-    
+
+    // Software AGC — per-receiver long-term baseline (point 7)
+    float    agc_baseline;         // Slow EMA of rssi_norm (~10 s convergence @100 Hz)
+    uint16_t agc_sample_count;     // Stable samples accumulated; correction active after 100
+    int16_t  rssi_agc;             // AGC-corrected RSSI (0-100), used inside scoring
+
     // Health
     diversity_health_t health;
     uint32_t health_check_ms;      // Time of last health check
@@ -108,7 +120,16 @@ typedef struct {
     uint32_t time_stable_ms;       // Time since last switch
     uint32_t longest_stable_ms;    // Longest stable period
     bool in_cooldown;              // Currently in cooldown period
-    
+
+    // Outcome-weighted hysteresis (point 9)
+    uint32_t       outcome_check_ms;       // When to evaluate the last switch (0 = none pending)
+    diversity_rx_t outcome_new_rx;         // Receiver we just switched TO
+    uint8_t        outcome_rssi_at_switch; // rssi_norm of new RX right at switch moment
+    float          rx_a_pref_bonus;        // Temporary score bonus for RX A (0-10)
+    float          rx_b_pref_bonus;        // Temporary score bonus for RX B (0-10)
+    uint32_t       rx_a_bonus_expires_ms;  // Expiry timestamp for RX A bonus
+    uint32_t       rx_b_bonus_expires_ms;  // Expiry timestamp for RX B bonus
+
     // Adaptive sampling (v1.7.1)
     uint32_t last_sample_ms;       // Last RSSI sampling time
     bool adaptive_high_rate;       // true=100Hz, false=20Hz
@@ -147,7 +168,6 @@ void diversity_reset_stats(void);
 
 // Internal functions (exposed for testing)
 uint8_t diversity_normalize_rssi(uint16_t raw, rssi_calibration_t* cal);
-void diversity_calculate_statistics(diversity_rx_state_t* rx);
 void diversity_calculate_scores(diversity_rx_state_t* rx, const diversity_mode_params_t* params);
 bool diversity_should_switch(diversity_state_t* state, const diversity_mode_params_t* params);
 void diversity_check_receiver_health(diversity_rx_state_t* rx);
