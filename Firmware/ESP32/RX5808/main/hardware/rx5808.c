@@ -11,7 +11,6 @@
 #include "hwvers.h"
 #include "led.h"
 #include "nvs_flash.h"
-#include "nvs_flash.h"
 #include "nvs.h"
 
 static const char *TAG = "RX5808";

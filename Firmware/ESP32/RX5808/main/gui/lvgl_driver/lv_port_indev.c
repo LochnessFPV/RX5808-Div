@@ -276,8 +276,6 @@ void lv_port_indev_init(void)
 #include "hardware/rx5808.h"   /* shared ADC1 oneshot handle */
 #include "esp_log.h"
 
-static int key_raw;
-
 //static esp_adc_cal_characteristics_t adc1_chars;
 /*Initialize your keypad*/
 static void keypad_init(void)
@@ -333,8 +331,7 @@ static void keypad_read(lv_indev_drv_t * indev_drv, lv_indev_data_t * data)
 /*Get the currently being pressed key.  0 if no key is pressed*/
 static uint32_t keypad_get_key(void)
 {
-
-    key_raw = RX5808_ADC_Read_Raw(KEY_ADC_CHAN);
+    int key_raw = RX5808_ADC_Read_Raw(KEY_ADC_CHAN);
     if(key_raw > 10 && key_raw < 4090) {  // suppress true idle (4095) and floating noise
         // DEBUG removed: printf("KEY_ADC_V: %d\n", key_raw);  // was flooding UART on every keypress
     }
@@ -350,88 +347,6 @@ static uint32_t keypad_get_key(void)
         return LV_KEY_ENTER;
     return 0;
 }
-
-/*------------------
- * Encoder
- * -----------------*/
-
-/*Initialize your keypad*/
-//static void encoder_init(void)
-//{
-//    /*Your code comes here*/
-//}
-
-/*Will be called by the library to read the encoder*/
-//static void encoder_read(lv_indev_drv_t * indev_drv, lv_indev_data_t * data)
-//{
-//    data->enc_diff = encoder_diff;
-//    data->state = encoder_state;
-//}
-
-///*Call this function in an interrupt to process encoder events (turn, press)*/
-//static void encoder_handler(void)
-//{
-//    /*Your code comes here*/
-
-//    encoder_diff += 0;
-//    encoder_state = LV_INDEV_STATE_REL;
-//}
-
-/*------------------
- * Button
- * -----------------*/
-
-/*Initialize your buttons*/
-//static void button_init(void)
-//{
-//    /*Your code comes here*/
-//}
-
-///*Will be called by the library to read the button*/
-//static void button_read(lv_indev_drv_t * indev_drv, lv_indev_data_t * data)
-//{
-
-//    static uint8_t last_btn = 0;
-
-//    /*Get the pressed button's ID*/
-//    int8_t btn_act = button_get_pressed_id();
-
-//    if(btn_act >= 0) {
-//        data->state = LV_INDEV_STATE_PR;
-//        last_btn = btn_act;
-//    } else {
-//        data->state = LV_INDEV_STATE_REL;
-//    }
-
-//    /*Save the last pressed button's ID*/
-//    data->btn_id = last_btn;
-//}
-
-///*Get ID  (0, 1, 2 ..) of the pressed button*/
-//static int8_t button_get_pressed_id(void)
-//{
-//    uint8_t i;
-
-//    /*Check to buttons see which is being pressed (assume there are 2 buttons)*/
-//    for(i = 0; i < 2; i++) {
-//        /*Return the pressed button's ID*/
-//        if(button_is_pressed(i)) {
-//            return i;
-//        }
-//    }
-
-//    /*No button pressed*/
-//    return -1;
-//}
-
-///*Test if `id` button is pressed or not*/
-//static bool button_is_pressed(uint8_t id)
-//{
-
-//    /*Your code comes here*/
-
-//    return false;
-//}
 
 #else /*Enable this file at the top*/
 

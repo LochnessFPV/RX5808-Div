@@ -70,7 +70,7 @@ void fan_set_speed(uint8_t duty)
     // Apply immediately only when not already running hotter from thermal
     if (duty >= fan_speed_actual) {
         fan_speed_actual = duty;
-        int fan_duty = (int)(duty * 81.91f);
+        int fan_duty = (int)(duty * 8191 / 100);  // 13-bit full scale = 8191
         ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, fan_duty);
         ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
     }
@@ -88,7 +88,8 @@ static void fan_set_pwm(uint8_t duty)
 {
     if (duty > 100) duty = 100;
     fan_speed_actual = duty;
-    int fan_duty = (int)(duty * 81.91f);
+    // Integer LEDC duty: 13-bit full scale = 8191; avoids float multiply on every fan update.
+    int fan_duty = (int)(duty * 8191 / 100);
     ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, fan_duty);
     ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
 }
@@ -128,7 +129,10 @@ void thermal_control_init(void)
 {
     // No driver install needed: the ESP32 ROM exposes temprature_sens_read()
     // directly without any peripheral initialisation.
-    xTaskCreate(thermal_task, "thermal", 2048, NULL, 1, NULL);
+    // Pin to Core 1 alongside the other hardware tasks (RSSI, diversity, beep).
+    // xTaskCreate() would leave the task on whichever core first schedules it;
+    // pinning ensures it never migrates to Core 0 and competes with LVGL.
+    xTaskCreatePinnedToCore(thermal_task, "thermal", 2048, NULL, 1, NULL, 1);
     ESP_LOGI(TAG_FAN, "Thermal fan control started");
 }
 

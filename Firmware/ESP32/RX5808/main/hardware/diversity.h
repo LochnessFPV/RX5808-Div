@@ -191,7 +191,7 @@ void diversity_reset_stats(void);
 // Internal functions (exposed for testing)
 uint8_t diversity_normalize_rssi(uint16_t raw, rssi_calibration_t* cal);
 void diversity_calculate_scores(diversity_rx_state_t* rx, const diversity_mode_params_t* params);
-bool diversity_should_switch(diversity_state_t* state, const diversity_mode_params_t* params);
-void diversity_check_receiver_health(diversity_rx_state_t* rx);
+bool diversity_should_switch(diversity_state_t* state, const diversity_mode_params_t* params, uint32_t now);
+void diversity_check_receiver_health(diversity_rx_state_t* rx, uint32_t now);
 
 #endif // __DIVERSITY_H

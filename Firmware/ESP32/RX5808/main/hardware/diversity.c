@@ -17,7 +17,6 @@
 #include "freertos/task.h"
 #include "driver/gpio.h"
 #include <string.h>
-#include <math.h>
 
 static const char* TAG = "diversity";
 
@@ -256,6 +255,22 @@ static void diversity_calculate_statistics(diversity_rx_state_t* rx, uint32_t in
 }
 
 /**
+ * @brief Integer square-root (Newton's method).
+ *        Replaces sqrtf() in the hot scoring path — no FPU division, no libm.
+ *        Converges in ≤8 iterations for any uint32_t input.
+ */
+static uint32_t diversity_isqrt(uint32_t n) {
+    if (n == 0) return 0;
+    uint32_t x = n;
+    uint32_t y = (x + 1) / 2;
+    while (y < x) {
+        x = y;
+        y = (x + n / x) / 2;
+    }
+    return x;
+}
+
+/**
  * @brief Calculate stability score and combined score
  */
 void diversity_calculate_scores(diversity_rx_state_t* rx, const diversity_mode_params_t* params) {
@@ -265,8 +280,10 @@ void diversity_calculate_scores(diversity_rx_state_t* rx, const diversity_mode_p
     // k_slope scaled so max penalty stays similar to before (~75 pts).
     float k_slope = 0.038f;
 
-    float variance_penalty = k_variance * sqrtf((float)rx->rssi_variance);
-    float slope_penalty    = k_slope    * fabsf((float)rx->rssi_slope);
+    // Integer sqrt/abs replace sqrtf()/fabsf() — avoids libm on the hot path
+    float variance_penalty = k_variance * (float)diversity_isqrt((uint32_t)rx->rssi_variance);
+    int16_t slope_abs      = (rx->rssi_slope < 0) ? (int16_t)(-rx->rssi_slope) : rx->rssi_slope;
+    float slope_penalty    = k_slope    * (float)slope_abs;
 
     int16_t stability = 100 - (int16_t)(variance_penalty + slope_penalty);
     if (stability < 0)   stability = 0;
@@ -288,9 +305,7 @@ void diversity_calculate_scores(diversity_rx_state_t* rx, const diversity_mode_p
 /**
  * @brief Check receiver health for stuck/failed conditions
  */
-void diversity_check_receiver_health(diversity_rx_state_t* rx) {
-    uint32_t now = esp_timer_get_time() / 1000; // ms
-    
+void diversity_check_receiver_health(diversity_rx_state_t* rx, uint32_t now) {
     // Check every 1 second
     if (now - rx->health_check_ms < 1000) {
         return;
@@ -324,9 +339,7 @@ void diversity_check_receiver_health(diversity_rx_state_t* rx) {
 /**
  * @brief Determine if conditions are right to switch receivers
  */
-bool diversity_should_switch(diversity_state_t* state, const diversity_mode_params_t* params) {
-    uint32_t now = esp_timer_get_time() / 1000; // ms
-    
+bool diversity_should_switch(diversity_state_t* state, const diversity_mode_params_t* params, uint32_t now) {
     // Get pointers to active and other receiver
     diversity_rx_state_t* active = (state->active_rx == DIVERSITY_RX_A) ? &state->rx_a : &state->rx_b;
     diversity_rx_state_t* other = (state->active_rx == DIVERSITY_RX_A) ? &state->rx_b : &state->rx_a;
@@ -717,9 +730,9 @@ void diversity_update(void) {
         state->rx_b.combined_score = (s > 100) ? 100 : (uint8_t)s;
     }
     
-    // Check receiver health
-    diversity_check_receiver_health(&state->rx_a);
-    diversity_check_receiver_health(&state->rx_b);
+    // Check receiver health (pass current timestamp to avoid extra syscalls)
+    diversity_check_receiver_health(&state->rx_a, now);
+    diversity_check_receiver_health(&state->rx_b, now);
     
     // Point 8: interference rejection via micro-frequency offset
     // Run after scores and outcome bonuses are finalised, before the switch decision,
@@ -741,7 +754,7 @@ void diversity_update(void) {
     }
     
     // Decide whether to switch
-    if (diversity_should_switch(state, params)) {
+    if (diversity_should_switch(state, params, now)) {
         diversity_perform_switch(state);
         // Visual feedback: double blink on every antenna switch.
         // Called here (task context) rather than inside the IRAM_ATTR function
