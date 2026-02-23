@@ -2,7 +2,7 @@
   "name": "RX5808-Div",
   "version": "v1.8.0",
   "build_date": "2026-02-23T00:00:00Z",
-  "commit": "fd438a8",
+  "commit": "f497edc",
   "changelog_url": "https://github.com/Ft-Available/RX5808-Div/blob/main/Firmware/ESP32/CHANGELOG.md",
   "documentation_url": "https://github.com/Ft-Available/RX5808-Div#readme",
   "new_install_improv_wait_time": 0,
