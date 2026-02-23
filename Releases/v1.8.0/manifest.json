@@ -1,10 +1,10 @@
 {
   "name": "RX5808-Div",
   "version": "v1.8.0",
-  "build_date": "TBD",
-  "commit": "TBD",
-  "changelog_url": "https://github.com/LochnessFPV/RX5808-Div/blob/main/CHANGELOG.md#v180---2026-03-xx",
-  "documentation_url": "https://github.com/LochnessFPV/RX5808-Div#readme",
+  "build_date": "2026-02-23T00:00:00Z",
+  "commit": "fd438a8",
+  "changelog_url": "https://github.com/Ft-Available/RX5808-Div/blob/main/Firmware/ESP32/CHANGELOG.md",
+  "documentation_url": "https://github.com/Ft-Available/RX5808-Div#readme",
   "new_install_improv_wait_time": 0,
   "new_install_prompt_erase": true,
   "builds": [
