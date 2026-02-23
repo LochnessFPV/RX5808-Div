@@ -46,7 +46,7 @@ void lv_fun_param_delayed(void (*fun)(uint8_t), uint32_t SysTick_Delay_ms,uint8_
     lv_anim_set_time(&a, 1);
     lv_anim_set_delay(&a, SysTick_Delay_ms);
     lv_anim_set_ready_cb(&a, lv_fun_param_ready_cb);
-    lv_anim_set_user_data(&a, (void*)user_data);
+    lv_anim_set_user_data(&a, (void*)(uintptr_t)user_data);
     lv_anim_start(&a);
     
 }
@@ -188,7 +188,7 @@ void lv_style_init_simple(lv_style_t *style)
 
 void lv_fun_param_ready_cb(lv_anim_t* a)
 {
-    ((void (*)())a->var)((uint8_t)a->user_data);
+    ((void (*)())a->var)((uint8_t)(uintptr_t)a->user_data);
 }
 
 

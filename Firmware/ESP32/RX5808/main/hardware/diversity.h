@@ -1,7 +1,16 @@
 /**
  * @file diversity.h
  * @brief Advanced diversity switching algorithm based on Starfish specification  
- * @version 1.7.0
+ * @version 1.8.0
+ *
+ * v1.8.0 additions:
+ *   - Point 1: glitch-free switch (de-assert both lines before asserting new)
+ *   - Point 2: time-normalised slope (ADC units/s) so threshold is rate-invariant
+ *   - Point 7: per-receiver software AGC (slow EMA baseline, ±15% correction)
+ *   - Point 9: outcome-weighted hysteresis (+8 score bonus for 5 s when a
+ *              switch is confirmed beneficial 200 ms after the event)
+ *   - Point 8: interference rejection via micro-frequency offset (±1 MHz trial
+ *              when active receiver RSSI is low and declining; reverts after 30 s)
  * 
  * Implements intelligent diversity switching with:
  * - RSSI normalization and calibration
@@ -35,6 +44,14 @@ typedef enum {
     DIVERSITY_RX_A = 0,
     DIVERSITY_RX_B,
 } diversity_rx_t;
+
+/** @brief Frequency-shift FSM states for interference rejection (point 8) */
+typedef enum {
+    FREQ_SHIFT_IDLE = 0,       // No shift active; normal operation
+    FREQ_SHIFT_EVAL_PLUS,      // Tried +1 MHz — collecting evidence
+    FREQ_SHIFT_EVAL_MINUS,     // Tried -1 MHz — collecting evidence
+    FREQ_SHIFT_HOLD,           // Shift accepted; holding for FREQ_SHIFT_HOLD_MS
+} freq_shift_state_t;
 
 /** @brief Receiver health status flags */
 typedef struct {
@@ -81,7 +98,12 @@ typedef struct {
     // Scores
     uint8_t stability_score;       // Stability metric (0-100)
     uint8_t combined_score;        // Final weighted score (0-100)
-    
+
+    // Software AGC — per-receiver long-term baseline (point 7)
+    float    agc_baseline;         // Slow EMA of rssi_norm (~10 s convergence @100 Hz)
+    uint16_t agc_sample_count;     // Stable samples accumulated; correction active after 100
+    int16_t  rssi_agc;             // AGC-corrected RSSI (0-100), used inside scoring
+
     // Health
     diversity_health_t health;
     uint32_t health_check_ms;      // Time of last health check
@@ -108,12 +130,33 @@ typedef struct {
     uint32_t time_stable_ms;       // Time since last switch
     uint32_t longest_stable_ms;    // Longest stable period
     bool in_cooldown;              // Currently in cooldown period
-    
+
+    // Outcome-weighted hysteresis (point 9)
+    uint32_t       outcome_check_ms;       // When to evaluate the last switch (0 = none pending)
+    diversity_rx_t outcome_new_rx;         // Receiver we just switched TO
+    uint8_t        outcome_rssi_at_switch; // rssi_norm of new RX right at switch moment
+    float          rx_a_pref_bonus;        // Temporary score bonus for RX A (0-10)
+    float          rx_b_pref_bonus;        // Temporary score bonus for RX B (0-10)
+    uint32_t       rx_a_bonus_expires_ms;  // Expiry timestamp for RX A bonus
+    uint32_t       rx_b_bonus_expires_ms;  // Expiry timestamp for RX B bonus
+
     // Adaptive sampling (v1.7.1)
     uint32_t last_sample_ms;       // Last RSSI sampling time
     bool adaptive_high_rate;       // true=100Hz, false=20Hz
     float switches_per_second;     // Recent switching rate
     
+    // Point 8: interference rejection via micro-frequency offset
+    freq_shift_state_t freq_shift_state;       // FSM state
+    uint16_t           freq_shift_nominal;     // Nominal channel freq at trigger time (MHz)
+    int8_t             freq_shift_offset;      // Active offset: 0, +1, or -1 MHz
+    uint32_t           freq_shift_eval_end_ms; // End of evidence-collection window
+    uint32_t           freq_shift_hold_end_ms; // When the accepted hold expires
+    uint32_t           freq_shift_cooldown_ms; // Don't re-trigger until this timestamp
+    uint8_t            freq_shift_baseline;    // rssi_norm of active RX at trigger time
+
+    // Point E: low-signal audio alert state
+    uint32_t low_signal_beep_ms;   // Timestamp of last low-signal beep (ms)
+
     // Telemetry
     int8_t rssi_delta;             // RSSI_A - RSSI_B (signed)
     uint8_t switches_per_min;      // Recent switch rate
@@ -130,10 +173,12 @@ void diversity_update(void); // Call at DIVERSITY_SAMPLE_RATE_HZ
 diversity_rx_t diversity_get_active_rx(void);
 diversity_state_t* diversity_get_state(void);
 
-// RSSI calibration
-bool diversity_calibrate_start(diversity_rx_t rx);
-bool diversity_calibrate_floor(diversity_rx_t rx, uint16_t* result);
-bool diversity_calibrate_peak(diversity_rx_t rx, uint16_t* result);
+// RSSI calibration — incremental (non-blocking) API
+#define DIVERSITY_CALIB_SAMPLES 50          // 50 × 50ms = 2.5 s per phase on a single channel
+void diversity_calibrate_floor_sample(diversity_rx_t rx, uint16_t* buf, int index);
+bool diversity_calibrate_floor_finish(uint16_t* buf, int count, uint16_t* result);
+void diversity_calibrate_peak_sample(diversity_rx_t rx, uint16_t* buf, int index);
+bool diversity_calibrate_peak_finish(uint16_t* buf, int count, uint16_t* result);
 bool diversity_calibrate_save(void);
 void diversity_calibrate_load(void);
 
@@ -145,9 +190,8 @@ void diversity_reset_stats(void);
 
 // Internal functions (exposed for testing)
 uint8_t diversity_normalize_rssi(uint16_t raw, rssi_calibration_t* cal);
-void diversity_calculate_statistics(diversity_rx_state_t* rx);
 void diversity_calculate_scores(diversity_rx_state_t* rx, const diversity_mode_params_t* params);
-bool diversity_should_switch(diversity_state_t* state, const diversity_mode_params_t* params);
-void diversity_check_receiver_health(diversity_rx_state_t* rx);
+bool diversity_should_switch(diversity_state_t* state, const diversity_mode_params_t* params, uint32_t now);
+void diversity_check_receiver_health(diversity_rx_state_t* rx, uint32_t now);
 
 #endif // __DIVERSITY_H

@@ -267,23 +267,14 @@ void lv_port_indev_init(void)
  * -----------------*/
 // #define ADC_EXAMPLE_CALI_SCHEME     ESP_ADC_CAL_VAL_EFUSE_VREF
 
-
-// //ADC Channels
-#ifndef D0WDQ6_VER
-#define KEY_ADC_CHAN          ADC1_CHANNEL_2
-#else
-#define KEY_ADC_CHAN          ADC1_CHANNEL_6
-#endif
+// KEY_ADC_CHAN is defined in hardware/hwvers.h (included via lv_port_indev.h)
 
 // //ADC Attenuation
 // #define ADC_EXAMPLE_ATTEN           ADC_ATTEN_DB_11
 
 #include "driver/gpio.h"
-#include "driver/adc.h"
-#include "esp_adc_cal.h"
+#include "hardware/rx5808.h"   /* shared ADC1 oneshot handle */
 #include "esp_log.h"
-
-static int key_raw;
 
 //static esp_adc_cal_characteristics_t adc1_chars;
 /*Initialize your keypad*/
@@ -315,32 +306,24 @@ static void keypad_read(lv_indev_drv_t * indev_drv, lv_indev_data_t * data)
     //mouse_get_xy(&data->point.x, &data->point.y);
 
     /*Get whether the a key is pressed and save the pressed key*/
+    /* Release debounce: require 3 consecutive zero ADC reads before releasing.
+     * This bridges ADC noise gaps on narrow-window keys (e.g. RIGHT at 2800-3000)
+     * that would otherwise cause the LVGL keypad FSM to reset on every noisy tick. */
+    static uint32_t zero_streak = 0;  // uint32_t prevents overflow (uint8_t wraps at 255 → phantom key)
+
     uint32_t act_key = keypad_get_key();
     if(act_key != 0) {
+        zero_streak = 0;
         data->state = LV_INDEV_STATE_PR;
-
-        /*Translate the keys to LVGL control characters according to your key definitions*/
-        switch(act_key) {
-        case 1:
-            act_key = LV_KEY_NEXT;
-            break;
-        case 2:
-            act_key = LV_KEY_PREV;
-            break;
-        case 3:
-            act_key = LV_KEY_LEFT;
-            break;
-        case 4:
-            act_key = LV_KEY_RIGHT;
-            break;
-        case 5:
-            act_key = LV_KEY_ENTER;
-            break;
-        }
-
         last_key = act_key;
     } else {
-        data->state = LV_INDEV_STATE_REL;
+        zero_streak++;
+        if(zero_streak >= 3) {
+            data->state = LV_INDEV_STATE_REL;
+        } else {
+            /* ADC glitch — keep last key pressed to maintain LVGL long-press state */
+            data->state = (last_key != 0) ? LV_INDEV_STATE_PR : LV_INDEV_STATE_REL;
+        }
     }
 
     data->key = last_key;
@@ -348,103 +331,22 @@ static void keypad_read(lv_indev_drv_t * indev_drv, lv_indev_data_t * data)
 /*Get the currently being pressed key.  0 if no key is pressed*/
 static uint32_t keypad_get_key(void)
 {
-
-    key_raw = adc1_get_raw(KEY_ADC_CHAN);
-    //printf("KEY_ADC_V: %d\n",key_raw);
+    int key_raw = RX5808_ADC_Read_Raw(KEY_ADC_CHAN);
+    if(key_raw > 10 && key_raw < 4090) {  // suppress true idle (4095) and floating noise
+        // DEBUG removed: printf("KEY_ADC_V: %d\n", key_raw);  // was flooding UART on every keypress
+    }
     if(key_raw>3000&&key_raw<3500)
         return LV_KEY_UP;
-    if(key_raw<2800&&key_raw>2400)
+    if(key_raw<2650&&key_raw>2400)   // DOWN center ~2457, dead zone 2650-2700
         return LV_KEY_DOWN;
     if(key_raw<500)
         return LV_KEY_LEFT;
-    if(key_raw<3000&&key_raw>2800)
+    if(key_raw<3000&&key_raw>2700)   // RIGHT center ~2800, well clear of DOWN
         return LV_KEY_RIGHT;
     if(key_raw<2200&&key_raw>1750)
         return LV_KEY_ENTER;
     return 0;
 }
-
-/*------------------
- * Encoder
- * -----------------*/
-
-/*Initialize your keypad*/
-//static void encoder_init(void)
-//{
-//    /*Your code comes here*/
-//}
-
-/*Will be called by the library to read the encoder*/
-//static void encoder_read(lv_indev_drv_t * indev_drv, lv_indev_data_t * data)
-//{
-//    data->enc_diff = encoder_diff;
-//    data->state = encoder_state;
-//}
-
-///*Call this function in an interrupt to process encoder events (turn, press)*/
-//static void encoder_handler(void)
-//{
-//    /*Your code comes here*/
-
-//    encoder_diff += 0;
-//    encoder_state = LV_INDEV_STATE_REL;
-//}
-
-/*------------------
- * Button
- * -----------------*/
-
-/*Initialize your buttons*/
-//static void button_init(void)
-//{
-//    /*Your code comes here*/
-//}
-
-///*Will be called by the library to read the button*/
-//static void button_read(lv_indev_drv_t * indev_drv, lv_indev_data_t * data)
-//{
-
-//    static uint8_t last_btn = 0;
-
-//    /*Get the pressed button's ID*/
-//    int8_t btn_act = button_get_pressed_id();
-
-//    if(btn_act >= 0) {
-//        data->state = LV_INDEV_STATE_PR;
-//        last_btn = btn_act;
-//    } else {
-//        data->state = LV_INDEV_STATE_REL;
-//    }
-
-//    /*Save the last pressed button's ID*/
-//    data->btn_id = last_btn;
-//}
-
-///*Get ID  (0, 1, 2 ..) of the pressed button*/
-//static int8_t button_get_pressed_id(void)
-//{
-//    uint8_t i;
-
-//    /*Check to buttons see which is being pressed (assume there are 2 buttons)*/
-//    for(i = 0; i < 2; i++) {
-//        /*Return the pressed button's ID*/
-//        if(button_is_pressed(i)) {
-//            return i;
-//        }
-//    }
-
-//    /*No button pressed*/
-//    return -1;
-//}
-
-///*Test if `id` button is pressed or not*/
-//static bool button_is_pressed(uint8_t id)
-//{
-
-//    /*Your code comes here*/
-
-//    return false;
-//}
 
 #else /*Enable this file at the top*/
 

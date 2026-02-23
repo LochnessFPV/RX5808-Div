@@ -26,8 +26,7 @@ void eeprom_24cxx_read_byte_len(uint16_t addr,uint8_t *databuf,uint16_t len)
 		 
 	}
     i2c_master_stop(cmd);
-    esp_err_t ret = i2c_master_cmd_begin(i2c_port, cmd, 1000 / portTICK_RATE_MS);
-    //ESP_ERROR_CHECK(ret);
+    (void)i2c_master_cmd_begin(i2c_port, cmd, 1000 / portTICK_RATE_MS);
     i2c_cmd_link_delete(cmd);	
 } 
 void eeprom_24cxx_write_byte_len(uint16_t addr,uint8_t *databuf,uint16_t len)
@@ -42,8 +41,7 @@ void eeprom_24cxx_write_byte_len(uint16_t addr,uint8_t *databuf,uint16_t len)
 		 i2c_master_write_byte(cmd,databuf[i], ACK_CHECK_EN);
 	}
     i2c_master_stop(cmd);
-    esp_err_t ret = i2c_master_cmd_begin(i2c_port, cmd, 1000 / portTICK_RATE_MS);
-    //ESP_ERROR_CHECK(ret);
+    (void)i2c_master_cmd_begin(i2c_port, cmd, 1000 / portTICK_RATE_MS);
     i2c_cmd_link_delete(cmd);	
 }
 
@@ -62,8 +60,7 @@ void eeprom_24cxx_write_half_word_len(uint16_t addr,uint16_t *databuf,uint16_t l
          i2c_master_write_byte(cmd,databuf[i]&0xff, ACK_CHECK_EN);
 	}
     i2c_master_stop(cmd);
-    esp_err_t ret = i2c_master_cmd_begin(i2c_port, cmd, 1000 / portTICK_RATE_MS);
-    //ESP_ERROR_CHECK(ret);
+    (void)i2c_master_cmd_begin(i2c_port, cmd, 1000 / portTICK_RATE_MS);
     i2c_cmd_link_delete(cmd);	
 }
 
@@ -86,8 +83,7 @@ void eeprom_24cxx_read_half_word_len(uint16_t addr,uint16_t *databuf,uint16_t le
 		 i2c_master_read_byte(cmd, &temp[i], NACK_VAL);		 
 	}
     i2c_master_stop(cmd);
-    esp_err_t ret = i2c_master_cmd_begin(i2c_port, cmd, 1000 / portTICK_RATE_MS);
-    //ESP_ERROR_CHECK(ret);
+    (void)i2c_master_cmd_begin(i2c_port, cmd, 1000 / portTICK_RATE_MS);
     i2c_cmd_link_delete(cmd);
 
 	for(int i=0;i<len;i++)

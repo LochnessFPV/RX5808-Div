@@ -4,6 +4,7 @@
 #include "lvgl_stl.h"
 #include "beep.h"
 #include "hwvers.h"
+#include "lv_anim_helpers.h"
 
 LV_FONT_DECLARE(lv_font_chinese_16);
 LV_FONT_DECLARE(lv_font_chinese_12);
@@ -76,17 +77,17 @@ static void vbat_label_update(lv_timer_t* tmr)
     }
     else
     {
-        lv_label_set_text_fmt(vbat_label, "供电电压:%.4fV", Get_Battery_Voltage());
+        lv_label_set_text_fmt(vbat_label, "ä¾›ç”µç”µåŽ‹:%.4fV", Get_Battery_Voltage());
     }
 }
 
 
 static void page_about_exit()
 {
-    lv_amin_start(vbat_label, lv_obj_get_style_text_opa(vbat_label, LV_PART_MAIN), 0, 1, 200, 300, (lv_anim_exec_xcb_t)lv_obj_opa_cb, page_about_anim_leave);
-    lv_amin_start(version_label, lv_obj_get_style_text_opa(version_label, LV_PART_MAIN), 0, 1, 200, 200, (lv_anim_exec_xcb_t)lv_obj_opa_cb, page_about_anim_leave);
-    lv_amin_start(base_label, lv_obj_get_style_text_opa(base_label, LV_PART_MAIN), 0, 1, 200, 100, (lv_anim_exec_xcb_t)lv_obj_opa_cb, page_about_anim_leave);
-    lv_amin_start(protocol_label, lv_obj_get_style_text_opa(protocol_label, LV_PART_MAIN), 0, 1, 200, 0, (lv_anim_exec_xcb_t)lv_obj_opa_cb, page_about_anim_leave);
+    lv_amin_start(vbat_label, lv_obj_get_style_text_opa(vbat_label, LV_PART_MAIN), 0, 1, 200, 300, anim_opa_cb, page_about_anim_leave);
+    lv_amin_start(version_label, lv_obj_get_style_text_opa(version_label, LV_PART_MAIN), 0, 1, 200, 200, anim_opa_cb, page_about_anim_leave);
+    lv_amin_start(base_label, lv_obj_get_style_text_opa(base_label, LV_PART_MAIN), 0, 1, 200, 100, anim_opa_cb, page_about_anim_leave);
+    lv_amin_start(protocol_label, lv_obj_get_style_text_opa(protocol_label, LV_PART_MAIN), 0, 1, 200, 0, anim_opa_cb, page_about_anim_leave);
 
     lv_obj_del_delayed(page_about_contain, 500);
     lv_group_del(about_group);
@@ -166,15 +167,15 @@ void page_about_create()
     else
     {
         lv_obj_set_style_text_font(menu_about_label, &lv_font_chinese_16, LV_STATE_DEFAULT);
-        lv_label_set_text(menu_about_label, "#1010ff 模拟# #00ff00 -# #ff0000 接收机#");
+        lv_label_set_text(menu_about_label, "#1010ff æ¨¡æ‹Ÿ# #00ff00 -# #ff0000 æŽ¥æ”¶æœº#");
         lv_obj_set_style_text_font(vbat_label, &lv_font_chinese_12, LV_STATE_DEFAULT);
         lv_obj_set_style_text_font(version_label, &lv_font_chinese_12, LV_STATE_DEFAULT);
         lv_obj_set_style_text_font(base_label, &lv_font_chinese_12, LV_STATE_DEFAULT);
         lv_obj_set_style_text_font(protocol_label, &lv_font_chinese_12, LV_STATE_DEFAULT);
-        lv_label_set_text_fmt(vbat_label, "供电电压:%.4fV", Get_Battery_Voltage());
-        lv_label_set_text_fmt(version_label, "固件版本:v%d.%d.%d",RX5808_VERSION_MAJOR, RX5808_VERSION_MINOR, RX5808_VERSION_PATCH);
+        lv_label_set_text_fmt(vbat_label, "ä¾›ç”µç”µåŽ‹:%.4fV", Get_Battery_Voltage());
+        lv_label_set_text_fmt(version_label, "å›ºä»¶ç‰ˆæœ¬:v%d.%d.%d",RX5808_VERSION_MAJOR, RX5808_VERSION_MINOR, RX5808_VERSION_PATCH);
         lv_label_set_text_fmt(base_label, "LVGL:v%d.%d.%d", LVGL_VERSION_MAJOR, LVGL_VERSION_MINOR, LVGL_VERSION_PATCH);
-        lv_label_set_text_fmt(protocol_label, "开源协议:GPL3.0");
+        lv_label_set_text_fmt(protocol_label, "å¼€æºåè®®:GPL3.0");
     }
 
     about_group = lv_group_create();
@@ -187,10 +188,10 @@ void page_about_create()
 
     vbat_label_timer = lv_timer_create(vbat_label_update, 300, NULL);
 
-    lv_amin_start(vbat_label, 0, 255, 1, 200, 0, (lv_anim_exec_xcb_t)lv_obj_opa_cb, page_about_anim_enter);
-    lv_amin_start(version_label, 0, 255, 1, 200, 100, (lv_anim_exec_xcb_t)lv_obj_opa_cb, page_about_anim_enter);
-    lv_amin_start(base_label, 0, 255, 1, 200, 200, (lv_anim_exec_xcb_t)lv_obj_opa_cb, page_about_anim_enter);
-    lv_amin_start(protocol_label, 0, 255, 1, 200, 300, (lv_anim_exec_xcb_t)lv_obj_opa_cb, page_about_anim_enter);
+    lv_amin_start(vbat_label, 0, 255, 1, 200, 0, anim_opa_cb, page_about_anim_enter);
+    lv_amin_start(version_label, 0, 255, 1, 200, 100, anim_opa_cb, page_about_anim_enter);
+    lv_amin_start(base_label, 0, 255, 1, 200, 200, anim_opa_cb, page_about_anim_enter);
+    lv_amin_start(protocol_label, 0, 255, 1, 200, 300, anim_opa_cb, page_about_anim_enter);
 }
 
 

@@ -15,6 +15,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "diversity.h"
+#include "led.h"
 #include "esp_log.h"
 #include "esp_pm.h"
 #include "esp_clk_tree.h"
@@ -25,63 +26,55 @@
 
 static const char *TAG = "SYSTEM";
 
+// LVGL task delay: 20ms (50Hz) active, 50ms (20Hz) when locked/idle
+volatile uint8_t system_lvgl_sleep_ms = 20;
 
-void create_cpu_stack_monitor_task();
-void cpu_stack_monitor_task(void *param);
 
-static void led_flash_task(void *param)
-{
-
-	while(1)
-	{
-         gpio_set_level(LED0_PIN, 0);
-		 vTaskDelay(300/portTICK_PERIOD_MS);
-		 gpio_set_level(LED0_PIN, 1);
-		 vTaskDelay(300/portTICK_PERIOD_MS);
-	}
-}
-
-void LED_Init()
-{ 
-    gpio_set_direction(LED0_PIN, GPIO_MODE_OUTPUT);		
-	gpio_set_level(LED0_PIN, 0);
-
-	xTaskCreatePinnedToCore((TaskFunction_t)led_flash_task,
-	                          "led_task", 
-							  512, 
-							  NULL,
-							   0,
-							    NULL, 
-								0 );
-	
-}
+// led_flash_task and LED_Init() removed (G): they wrote to LED0_PIN directly,
+// racing with led.c's pattern engine which owns the same GPIO.
+// led_init() in led.c is the sole owner of LED0_PIN at runtime.
 
 // Apply CPU frequency based on user setting
 void system_apply_cpu_freq(uint16_t freq_setting)
 {
-    uint32_t freq_mhz;
+	uint32_t freq_mhz;
+	bool auto_mode = false;
     
     // Map setting to actual frequency
     switch (freq_setting) {
         case 0:  freq_mhz = 80;  break;
         case 1:  freq_mhz = 160; break;
         case 2:  freq_mhz = 240; break;
-        default: freq_mhz = 160; break;  // Default to 160MHz
+		case 3:
+		default:
+			auto_mode = true;
+			freq_mhz = 240;
+			break;
     }
-    
-    ESP_LOGI(TAG, "Applying CPU frequency: %lu MHz", freq_mhz);
+
+	ESP_LOGI(TAG, "Applying CPU frequency mode: %s", auto_mode ? "AUTO" : "FIXED");
     
     #ifdef CONFIG_PM_ENABLE
-    // Use power management to set frequency dynamically
+    // Use power management to set frequency dynamically.
+    // Light sleep is enabled in AUTO mode: the main loop and LVGL timer both
+    // call vTaskDelay() which satisfies the tickless-idle precondition, so the
+    // core can sleep between LVGL frames and RSSI samples for meaningful power
+    // and heat reduction.  Fixed-frequency modes keep it off to avoid wakeup
+    // latency affecting time-critical GPIO or SPI operations.
+    // Requires CONFIG_PM_ENABLE=y and CONFIG_FREERTOS_USE_TICKLESS_IDLE=1.
     esp_pm_config_esp32_t pm_config = {
-        .max_freq_mhz = freq_mhz,
-        .min_freq_mhz = freq_mhz,  // Keep constant for predictable performance
-        .light_sleep_enable = false
+		.max_freq_mhz = freq_mhz,
+		.min_freq_mhz = auto_mode ? 80 : freq_mhz,
+        .light_sleep_enable = auto_mode
     };
     
     esp_err_t ret = esp_pm_configure(&pm_config);
     if (ret == ESP_OK) {
-        ESP_LOGI(TAG, "CPU frequency successfully set to %lu MHz", freq_mhz);
+		if (auto_mode) {
+			ESP_LOGI(TAG, "CPU frequency set to AUTO range: 80-%lu MHz", freq_mhz);
+		} else {
+			ESP_LOGI(TAG, "CPU frequency fixed at %lu MHz", freq_mhz);
+		}
     } else {
         ESP_LOGW(TAG, "Failed to set CPU frequency via PM (error %d), trying direct method", ret);
     }
@@ -89,8 +82,8 @@ void system_apply_cpu_freq(uint16_t freq_setting)
     // Power management not enabled, log current frequency
     uint32_t current_freq = 0;
     esp_clk_tree_src_get_freq_hz(SOC_MOD_CLK_CPU, ESP_CLK_TREE_SRC_FREQ_PRECISION_CACHED, &current_freq);
-    ESP_LOGI(TAG, "PM not enabled. Current CPU frequency: %lu MHz (requested: %lu MHz)", 
-             current_freq / 1000000, freq_mhz);
+	ESP_LOGI(TAG, "PM not enabled. Current CPU frequency: %lu MHz (requested %lu MHz, mode: %s)", 
+			 current_freq / 1000000, freq_mhz, auto_mode ? "AUTO" : "FIXED");
     ESP_LOGI(TAG, "To enable dynamic frequency scaling, set CONFIG_PM_ENABLE=y in sdkconfig");
     #endif
 }
@@ -135,6 +128,7 @@ void system_init(void)
 	printf("lcd init success!\n");
 	fan_Init();	
 	printf("fan init success!\n");
+	thermal_control_init();
  	eeprom_24cxx_init();	
 	printf("24cxx init success!\n");
  	rx5808_div_setup_load();
@@ -143,7 +137,7 @@ void system_init(void)
 	// Apply CPU frequency from settings
 	system_apply_cpu_freq(RX5808_Get_CPU_Freq());
 	
- 	LED_Init();
+	led_init();
 	printf("led init success!\n"); 	
  	Beep_Init();
 	printf("beep init success!\n");
@@ -174,78 +168,35 @@ void system_init(void)
 	
 }
 
-/*
-make menuconfig -> Component config -> FreeRTOS -> Enable FreeRTOS trace facility
-make menuconfig -> Component config -> FreeRTOS -> Enable FreeRTOS trace facility -> Enable FreeRTOS stats formatting functions
-make menuconfig -> Component config -> FreeRTOS -> Enable FreeRTOS to collect run time stats*/
-void create_cpu_stack_monitor_task()
+
+// --- LVGL idle rate control ---
+
+void system_set_lvgl_idle(bool idle)
 {
-    xTaskCreate((TaskFunction_t )cpu_stack_monitor_task, /* 任务入口函数 */
-                  (const char* )"CPU_STACK",
-                  (uint16_t )3072, 
-                  (void* )NULL, 
-                  (UBaseType_t )1, 
-                  NULL);
+    system_lvgl_sleep_ms = idle ? 50 : 20;
+    ESP_LOGD(TAG, "LVGL sleep: %dms", system_lvgl_sleep_ms);
 }
 
+// --- CPU power context control ---
 
-void cpu_stack_monitor_task(void *param)
+void system_set_cpu_context_idle(bool idle)
 {
-	uint8_t CPU_STACK_RunInfo[400]; 
-
-	while (1) {
-		// memset(CPU_STACK_RunInfo,0,400); 
-
-		// vTaskList((char *)&CPU_STACK_RunInfo);
-
-		// printf("-----------------heap_monitor-----------------\r\n");
-		// printf("name        status   priority  stack  label\r\n");
-		// printf("%s", CPU_STACK_RunInfo);
-		// printf("---------------------------------------------\r\n");
-
-		// memset(CPU_STACK_RunInfo,0,400);
-
-		// vTaskGetRunTimeStats((char *)&CPU_STACK_RunInfo);
-        
-		// printf("-----------------running_time_monitor----------------\r\n");
-		// printf("name             count              precent\r\n");printf("%s", CPU_STACK_RunInfo);
-		// printf("---------------------------------------------\r\n\n");
-		vTaskDelay(3000/portTICK_PERIOD_MS);
-	}
-
+#ifdef CONFIG_PM_ENABLE
+    if (idle) {
+        // Locked/idle: cap at 80 MHz; enable light sleep so the core can
+        // actually power-gate while waiting for the next LVGL vTaskDelay.
+        esp_pm_config_esp32_t pm = {
+            .max_freq_mhz      = 80,
+            .min_freq_mhz      = 80,
+            .light_sleep_enable = true
+        };
+        esp_pm_configure(&pm);
+        ESP_LOGD(TAG, "CPU context: IDLE (80 MHz + light sleep)");
+    } else {
+        // Active: restore user-configured frequency
+        system_apply_cpu_freq(RX5808_Get_CPU_Freq());
+        ESP_LOGD(TAG, "CPU context: ACTIVE (user freq)");
+    }
+#endif
 }
-
-/*
------------------heap_monitor-----------------
-name        status   priority  stack  label
-CPU_STACK       X       1       936     16
-main            R       1       256     5
-IDLE            R       0       1044    6
-led_task        R       0       108     13
-IDLE            R       0       1048    7
-rx5808_task     B       5       372     15
-Tmr Svc         B       1       1660    8
-ipc0            B       24      1092    1
-upload_task     B       2       288     12
-esp_timer       S       22      3672    3
-beep_task       B       1       336     14
-ipc1            B       24      1132    2
----------------------------------------------
------------------running_time_monitor----------------
-name             count              precent
-CPU_STACK       499214          2%
-led_task        1268            <1%
-IDLE            24446855                99%
-IDLE            13928661                56%
-main            6032396         24%
-rx5808_task     3895619         15%
-ipc0            13420           <1%
-upload_task     7729            <1%
-beep_task       1033            <1%
-esp_timer       520712          2%
-ipc1            18465           <1%
-Tmr Svc         12              <1%
----------------------------------------------
-*/
-
 

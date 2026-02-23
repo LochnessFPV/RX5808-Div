@@ -22,13 +22,13 @@ extern "C" {
     **********************/
     typedef enum
     {
-        item_scan = 0,
-        item_calib,
-        item_bandx_select,
-        item_spectrum,
-        item_drone_finder,
-        item_setup,
-        item_about,
+        item_quick_scan = 0,     // Quick channel scan (renamed from item_scan)
+        item_spectrum,           // Spectrum analyzer (moved up for prominence)
+        item_calib,              // Calibration
+        item_bandx_select,       // Band X editor
+        item_drone_finder,       // Drone finder
+        item_setup,              // Setup/settings
+        item_about,              // About page
         item_count
     } menu_item_list;
 

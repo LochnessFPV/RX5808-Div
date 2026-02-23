@@ -585,6 +585,8 @@ bool ELRS_Backpack_Init(void) {
     
     // Start WiFi (must be called before setting channel)
     ESP_ERROR_CHECK(esp_wifi_start());
+    // Item 3: reduce TX power to 10dBm (40) vs 20dBm default (80) — cuts WiFi heat
+    esp_wifi_set_max_tx_power(40);
     
     // Set WiFi channel after starting
     ESP_ERROR_CHECK(esp_wifi_set_channel(ESPNOW_WIFI_CHANNEL, WIFI_SECOND_CHAN_NONE));

@@ -1,7 +1,19 @@
 #ifndef __RX5808_DIV_HW_VERS_H
 #define __RX5808_DIV_HW_VERS_H
 
-// Software Version v1.7.1
+// Software Version v1.8.0
+// Changes in v1.8.0:
+//   - UX: Unified navigation system (consistent controls across all pages)
+//   - UX: Quick action menu (long-hold RIGHT for instant access)
+//   - UX: Main page band/channel controls (UP/DOWN=band, LEFT/RIGHT=channel)
+//   - UX: Smart channel scanning (auto-switch to strongest signal)
+//   - UX: LED status feedback (meaningful patterns for every state)
+//   - UX: Flattened menu structure (7 items, no nesting)
+//   - Fix: Calibration noise floor detection (median + MAD filtering)
+//   - Improve: Band X editor (auto-repeat, visual validation)
+//   - Feature: AUTO CPU mode (dynamic 80/160/240 MHz)
+//   - Defaults: 160 MHz CPU, 14 Hz GUI rate
+//
 // Changes in v1.7.1:
 //   - Performance (#1): Complete diversity hardware switching (GPIO antenna control)
 //   - Performance (#2): DMA-accelerated SPI (VSPI peripheral, 64% faster, non-blocking)
@@ -33,8 +45,8 @@
 //   - Fixed Band E frequency mapping for VTX compatibility
 //   - D0WDQ6_VER hardware variant support (v1.2 hardware)
 #define RX5808_VERSION_MAJOR  1
-#define RX5808_VERSION_MINOR  7
-#define RX5808_VERSION_PATCH  1
+#define RX5808_VERSION_MINOR  8
+#define RX5808_VERSION_PATCH  0
 
 //#define ST7735S
 #define D0WDQ6_VER   // ENABLE this for v1.2 hardware
@@ -64,14 +76,18 @@
 
 
 
-#define RX5808_RSSI0_CHAN  ADC1_CHANNEL_0
-#define RX5808_RSSI1_CHAN  ADC1_CHANNEL_3
+// ADC channel constants use the new adc_channel_t enum (esp_adc/adc_oneshot.h).
+// The legacy ADC1_CHANNEL_x names belong to driver/adc.h which is deprecated
+// in ESP-IDF v5.x; the replacement API drops the unit prefix.
+#include "esp_adc/adc_oneshot.h"
+#define RX5808_RSSI0_CHAN  ADC_CHANNEL_0
+#define RX5808_RSSI1_CHAN  ADC_CHANNEL_3
 #ifndef D0WDQ6_VER
-#define VBAT_ADC_CHAN      ADC1_CHANNEL_1
-#define KEY_ADC_CHAN       ADC1_CHANNEL_2
+#define VBAT_ADC_CHAN      ADC_CHANNEL_1
+#define KEY_ADC_CHAN       ADC_CHANNEL_2
 #else
-#define VBAT_ADC_CHAN      ADC1_CHANNEL_7
-#define KEY_ADC_CHAN       ADC1_CHANNEL_6
+#define VBAT_ADC_CHAN      ADC_CHANNEL_7
+#define KEY_ADC_CHAN       ADC_CHANNEL_6
 #endif
 
 #define RX5808_SCLK       18

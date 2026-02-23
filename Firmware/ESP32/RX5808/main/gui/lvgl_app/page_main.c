@@ -5,15 +5,24 @@
 #include "page_main.h"
 #include "page_menu.h"
 #include "page_spectrum.h"
+#include "page_scan.h"
+#include "page_scan_table.h"
+#include "page_setup.h"
+#include "page_diversity_calib.h"
+#include "page_bandx_channel_select.h"
 #include "rx5808.h"
 #include "rx5808_config.h"
 #include "lvgl_stl.h"
 #include "lv_port_disp.h"
 #include <stdlib.h>
 #include <inttypes.h>
+#include "system.h"
 #include "beep.h"
 #include "lv_port_disp.h"
 #include "diversity.h"
+#include "navigation.h"
+#include "../quick_menu.h"
+#include "led.h"
 
 //LV_FONT_DECLARE(lv_font_chinese_16);
 LV_FONT_DECLARE(lv_font_chinese_12);
@@ -60,6 +69,50 @@ static bool blink_visible = true;           // Blink state
 static uint32_t last_click_time = 0;        // For double-click detection (ms)
 #define DOUBLE_CLICK_TIME_MS 500            // Maximum time between clicks for double-click
 
+// Band X auto-repeat feature
+static uint32_t bandx_key_press_start = 0;  // When key was pressed
+static bool bandx_key_is_held = false;      // Track if key is being held
+static lv_key_t bandx_held_key = 0;          // Which key is being held
+#define BANDX_AUTO_REPEAT_START_MS 500       // Start auto-repeat after 500ms
+#define BANDX_FAST_ADJUST_START_MS 2000      // Fast adjust (10MHz) after 2s
+#define BANDX_AUTO_REPEAT_INTERVAL_MS 100    // Repeat every 100ms
+
+// Quick menu support
+static quick_menu_t* quick_menu = NULL;
+
+// Hold-LEFT tracking for locked quick menu (LV_EVENT_LONG_PRESSED never fires for directional keys)
+static uint32_t hold_left_start_time = 0;
+static bool hold_left_menu_opened = false;
+#define HOLD_LEFT_MENU_MS 1500  // ms to hold LEFT while locked to open quick menu
+
+// Deferred navigation: stores the action selected in the quick menu so that
+// the one-shot lv_timer callback can launch the correct page after page_main
+// has fully torn itself down (avoids blocking Core 0 with vTaskDelay).
+static quick_action_t pending_nav_action = QUICK_ACTION_EXIT;
+
+static void deferred_nav_timer_cb(lv_timer_t* tmr)
+{
+    lv_timer_del(tmr);  // one-shot: remove immediately after firing
+    switch (pending_nav_action) {
+        case QUICK_ACTION_SCAN:
+            page_scan_table_create_from_main();
+            break;
+        case QUICK_ACTION_SPECTRUM:
+            page_spectrum_create(false, 0);
+            break;
+        case QUICK_ACTION_CALIBRATION:
+            page_diversity_calib_create();
+            break;
+        case QUICK_ACTION_BAND_X:
+            page_bandx_channel_select_create();
+            break;
+        case QUICK_ACTION_SETTINGS:
+            page_setup_create();
+            break;
+        default:
+            break;
+    }
+}
 
 static void page_main_exit(void);
 static void page_main_group_create(void);
@@ -68,180 +121,264 @@ static void fre_label_update_band_x(uint16_t freq);
 static void blink_timer_callback(lv_timer_t* timer);
 static void start_band_x_freq_edit(void);
 static void stop_band_x_freq_edit(void);
+static uint32_t bandx_get_freq_color(uint16_t freq);
+static void bandx_adjust_frequency(int8_t direction);
+static void quick_menu_action_handler(quick_action_t action);
+static void locked_adjust_channel(int8_t direction, bool is_band_x);
+static void adjust_band(int8_t direction, bool is_band_x);
+
+/**
+ * @brief Handle quick menu action selection
+ */
+static void quick_menu_action_handler(quick_action_t action) {
+    if (!page_main_active) return;
+
+    // Exit just closes the quick menu – stay on main page
+    if (action == QUICK_ACTION_EXIT) return;
+
+    page_main_exit();
+
+    // Defer page creation with a non-blocking 50 ms lv_timer so that
+    // page_main_exit() fully tears down its LVGL objects before the next
+    // page builds its own.  The old vTaskDelay(50) blocked Core 0's LVGL
+    // task, stalling rendering and input for the entire delay period.
+    pending_nav_action = action;
+    lv_timer_create(deferred_nav_timer_cb, 50, NULL);
+}
+
+static void locked_adjust_channel(int8_t direction, bool is_band_x)
+{
+    if (direction < 0) {
+        if (is_band_x) {
+            // Band X: Change channel within Band X
+            channel_count--;
+            if (channel_count < 0)
+                channel_count = 7;
+            uint16_t freq = RX5808_Get_Band_X_Freq(channel_count);
+            RX5808_Set_Freq(freq);
+            Rx5808_Set_Channel(channel_count + Chx_count * 8);
+            rx5808_div_setup_upload(rx5808_div_config_channel);
+            fre_label_update_band_x(freq);
+            lv_label_set_text_fmt(lv_channel_label, "X%d", channel_count + 1);
+        } else {
+            // Normal: Change channel
+            channel_count--;
+            if (channel_count < 0)
+                channel_count = 7;
+            RX5808_Set_Freq(RX5808_Get_Current_Freq());
+            Rx5808_Set_Channel(channel_count + Chx_count * 8);
+            rx5808_div_setup_upload(rx5808_div_config_channel);
+            fre_label_update(Chx_count, channel_count);
+            lv_label_set_text_fmt(lv_channel_label, "%c%d", Rx5808_ChxMap[Chx_count], channel_count + 1);
+        }
+    } else {
+        if (is_band_x) {
+            // Band X: Change channel within Band X
+            channel_count++;
+            if (channel_count > 7)
+                channel_count = 0;
+            uint16_t freq = RX5808_Get_Band_X_Freq(channel_count);
+            RX5808_Set_Freq(freq);
+            Rx5808_Set_Channel(channel_count + Chx_count * 8);
+            rx5808_div_setup_upload(rx5808_div_config_channel);
+            fre_label_update_band_x(freq);
+            lv_label_set_text_fmt(lv_channel_label, "X%d", channel_count + 1);
+        } else {
+            // Normal: Change channel
+            channel_count++;
+            if (channel_count > 7)
+                channel_count = 0;
+            RX5808_Set_Freq(RX5808_Get_Current_Freq());
+            Rx5808_Set_Channel(channel_count + Chx_count * 8);
+            rx5808_div_setup_upload(rx5808_div_config_channel);
+            fre_label_update(Chx_count, channel_count);
+            lv_label_set_text_fmt(lv_channel_label, "%c%d", Rx5808_ChxMap[Chx_count], channel_count + 1);
+        }
+    }
+}
+
+static void adjust_band(int8_t direction, bool is_band_x)
+{
+    if (direction < 0) {
+        Chx_count--;
+        if (Chx_count < 0)
+            Chx_count = 6;
+    } else {
+        Chx_count++;
+        if (Chx_count > 6)
+            Chx_count = 0;
+    }
+
+    RX5808_Set_Freq(RX5808_Get_Current_Freq());
+    Rx5808_Set_Channel(channel_count + Chx_count * 8);
+    rx5808_div_setup_upload(rx5808_div_config_channel);
+
+    if (is_band_x || RX5808_Is_Band_X()) {
+        fre_label_update_band_x(RX5808_Get_Band_X_Freq(channel_count));
+        lv_label_set_text_fmt(lv_channel_label, "X%d", channel_count + 1);
+    } else {
+        fre_label_update(Chx_count, channel_count);
+        lv_label_set_text_fmt(lv_channel_label, "%c%d", Rx5808_ChxMap[Chx_count], channel_count + 1);
+    }
+}
 
 static void event_callback(lv_event_t* event)
 {
     lv_event_code_t code = lv_event_get_code(event);
-    if (code == LV_EVENT_KEY) {
-        if (lock_flag == true) {
-            lv_key_t key_status = lv_indev_get_key(lv_indev_get_act());
-            if ((key_status >= LV_KEY_UP && key_status <= LV_KEY_LEFT)) {
-                beep_turn_on();
+    bool is_band_x = RX5808_Is_Band_X();
+
+    // Quick menu intercept: route all input to quick menu while it is active
+    if (quick_menu && quick_menu_is_active(quick_menu)) {
+        if (code == LV_EVENT_KEY) {
+            lv_key_t key = lv_indev_get_key(lv_indev_get_act());
+            // Swallow the LEFT key-repeats from the hold that opened the menu,
+            // until the user physically releases and re-presses LEFT.
+            if (key == LV_KEY_LEFT && hold_left_menu_opened) {
+                return;  // still holding the trigger key – don't cancel yet
             }
-            
-            // Check if on Band X for special handling
-            bool is_band_x = RX5808_Is_Band_X();
-            
-            if (key_status == LV_KEY_LEFT) {
-                if (is_band_x) {
-                    // Band X: Change channel within Band X
-                    channel_count--;
-                    if (channel_count < 0)
-                        channel_count = 7;
-                    uint16_t freq = RX5808_Get_Band_X_Freq(channel_count);
-                    RX5808_Set_Freq(freq);
-                    Rx5808_Set_Channel(channel_count + Chx_count * 8);
-                    rx5808_div_setup_upload(rx5808_div_config_channel);
-                    fre_label_update_band_x(freq);
-                    lv_label_set_text_fmt(lv_channel_label, "X%d", channel_count + 1);
-                } else {
-                    // Normal: Change channel
-                    channel_count--;
-                    if (channel_count < 0)
-                        channel_count = 7;
-                    RX5808_Set_Freq(RX5808_Get_Current_Freq());
-                    Rx5808_Set_Channel(channel_count + Chx_count * 8);
-                    rx5808_div_setup_upload(rx5808_div_config_channel);
-                    fre_label_update(Chx_count, channel_count);
-                    lv_label_set_text_fmt(lv_channel_label, "%c%d", Rx5808_ChxMap[Chx_count], channel_count + 1);
-                }
+            quick_menu_handle_key(quick_menu, key);
+        } else if (code == LV_EVENT_RELEASED) {
+            // User lifted the key that opened the menu – LEFT can now cancel normally
+            hold_left_menu_opened = false;
+            hold_left_start_time = 0;
+        }
+        return;
+    }
 
-            } else if (key_status == LV_KEY_RIGHT) {
-                if (is_band_x) {
-                    // Band X: Change channel within Band X
-                    channel_count++;
-                    if (channel_count > 7)
-                        channel_count = 0;
-                    uint16_t freq = RX5808_Get_Band_X_Freq(channel_count);
-                    RX5808_Set_Freq(freq);
-                    Rx5808_Set_Channel(channel_count + Chx_count * 8);
-                    rx5808_div_setup_upload(rx5808_div_config_channel);
-                    fre_label_update_band_x(freq);
-                    lv_label_set_text_fmt(lv_channel_label, "X%d", channel_count + 1);
-                } else {
-                    // Normal: Change channel
-                    channel_count++;
-                    if (channel_count > 7)
-                        channel_count = 0;
-                    RX5808_Set_Freq(RX5808_Get_Current_Freq());
-                    Rx5808_Set_Channel(channel_count + Chx_count * 8);
-                    rx5808_div_setup_upload(rx5808_div_config_channel);
-                    fre_label_update(Chx_count, channel_count);
-                    lv_label_set_text_fmt(lv_channel_label, "%c%d", Rx5808_ChxMap[Chx_count], channel_count + 1);
-                }
+    if (code == LV_EVENT_KEY) {
+        lv_key_t key = lv_indev_get_key(lv_indev_get_act());
 
-            } else if (key_status == LV_KEY_UP) {
-                if (is_band_x && band_x_freq_edit_mode) {
-                    // Band X edit mode: Increase frequency by 1MHz
-                    uint16_t freq = RX5808_Get_Band_X_Freq(channel_count);
-                    freq++;
-                    if (freq > 5950) freq = 5950;
-                    RX5808_Set_Band_X_Freq(channel_count, freq);
-                    RX5808_Set_Freq(freq);
-                    blink_visible = true;  // Show frequency during adjustment
-                    fre_label_update_band_x(freq);
-                } else {
-                    // Normal: Change band (works for Band X when not in edit mode)
-                    Chx_count--;
-                    if (Chx_count < 0)
-                        Chx_count = 6;
-                    RX5808_Set_Freq(RX5808_Get_Current_Freq());
-                    Rx5808_Set_Channel(channel_count + Chx_count * 8);
-                    rx5808_div_setup_upload(rx5808_div_config_channel);
-                    if (RX5808_Is_Band_X()) {
-                        fre_label_update_band_x(RX5808_Get_Band_X_Freq(channel_count));
-                        lv_label_set_text_fmt(lv_channel_label, "X%d", channel_count + 1);
-                    } else {
-                        fre_label_update(Chx_count, channel_count);
-                        lv_label_set_text_fmt(lv_channel_label, "%c%d", Rx5808_ChxMap[Chx_count], channel_count + 1);
+        // While locked (lock_flag=false=RED): only track hold-LEFT for quick menu
+        if (!lock_flag) {
+            if (key == LV_KEY_LEFT) {
+                if (hold_left_start_time == 0) {
+                    hold_left_start_time = lv_tick_get();
+                } else if (!hold_left_menu_opened &&
+                           lv_tick_elaps(hold_left_start_time) >= HOLD_LEFT_MENU_MS) {
+                    hold_left_menu_opened = true;
+                    if (quick_menu && !quick_menu_is_active(quick_menu)) {
+                        beep_turn_on();
+                        quick_menu_show(quick_menu, main_contain, quick_menu_action_handler, false);
                     }
                 }
+            } else {
+                hold_left_start_time = 0;
+                hold_left_menu_opened = false;
+            }
+            return;
+        }
 
-            } else if (key_status == LV_KEY_DOWN) {
-                if (is_band_x && band_x_freq_edit_mode) {
-                    // Band X edit mode: Decrease frequency by 1MHz
-                    uint16_t freq = RX5808_Get_Band_X_Freq(channel_count);
-                    freq--;
-                    if (freq < 5300) freq = 5300;
-                    RX5808_Set_Band_X_Freq(channel_count, freq);
-                    RX5808_Set_Freq(freq);
-                    blink_visible = true;  // Show frequency during adjustment
-                    fre_label_update_band_x(freq);
-                } else {
-                    // Normal: Change band (works for Band X when not in edit mode)
-                    Chx_count++;
-                    if (Chx_count > 6)
-                        Chx_count = 0;
-                    RX5808_Set_Freq(RX5808_Get_Current_Freq());
-                    Rx5808_Set_Channel(channel_count + Chx_count * 8);
-                    rx5808_div_setup_upload(rx5808_div_config_channel);
-                    if (RX5808_Is_Band_X()) {
-                        fre_label_update_band_x(RX5808_Get_Band_X_Freq(channel_count));
-                        lv_label_set_text_fmt(lv_channel_label, "X%d", channel_count + 1);
-                    } else {
-                        fre_label_update(Chx_count, channel_count);
-                        lv_label_set_text_fmt(lv_channel_label, "%c%d", Rx5808_ChxMap[Chx_count], channel_count + 1);
-                    }
-                }
+        // Unlocked: reset hold-left state, process navigation normally
+        hold_left_start_time = 0;
+        hold_left_menu_opened = false;
+
+        if (key == LV_KEY_UP || key == LV_KEY_DOWN ||
+            key == LV_KEY_LEFT || key == LV_KEY_RIGHT) {
+            beep_turn_on();
+        }
+
+        // RIGHT/LEFT = channel, UP/DOWN = band (unlocked only)
+        if (key == LV_KEY_RIGHT) {
+            locked_adjust_channel(1, is_band_x);
+        } else if (key == LV_KEY_LEFT) {
+            locked_adjust_channel(-1, is_band_x);
+        } else if (key == LV_KEY_UP) {
+            if (is_band_x && band_x_freq_edit_mode)
+                bandx_adjust_frequency(1);
+            else
+                adjust_band(-1, is_band_x);
+        } else if (key == LV_KEY_DOWN) {
+            if (is_band_x && band_x_freq_edit_mode)
+                bandx_adjust_frequency(-1);
+            else
+                adjust_band(1, is_band_x);
+        }
+    }
+    else if (code == LV_EVENT_PRESSED) {
+        if (lock_flag) {
+            lv_key_t key = lv_indev_get_key(lv_indev_get_act());
+            if (is_band_x && band_x_freq_edit_mode &&
+                (key == LV_KEY_UP || key == LV_KEY_DOWN)) {
+                bandx_key_press_start = lv_tick_get();
+                bandx_key_is_held = true;
+                bandx_held_key = key;
+            }
+        }
+    }
+    else if (code == LV_EVENT_RELEASED) {
+        // Always reset hold-left tracking on any key release
+        hold_left_start_time = 0;
+        hold_left_menu_opened = false;
+        if (lock_flag) {
+            lv_key_t key = lv_indev_get_key(lv_indev_get_act());
+            if (is_band_x && band_x_freq_edit_mode &&
+                (key == LV_KEY_UP || key == LV_KEY_DOWN)) {
+                bandx_key_is_held = false;
+                bandx_key_press_start = 0;
             }
         }
     }
     else if (code == LV_EVENT_CLICKED) {
         beep_turn_on();
-        
-        // Check for double-click on Band X when locked
-        if (lock_flag == true && RX5808_Is_Band_X()) {
+        if (!lock_flag && is_band_x) {
             uint32_t now = lv_tick_get();
             bool is_double_click = (now - last_click_time) < DOUBLE_CLICK_TIME_MS;
             last_click_time = now;
-            
             if (band_x_freq_edit_mode) {
-                // Already in edit mode: save and exit on any click
                 stop_band_x_freq_edit();
                 RX5808_Save_Band_X_To_NVS();
-                // Visual feedback
                 lv_obj_t* save_label = lv_label_create(main_contain);
                 lv_label_set_text(save_label, "Saved!");
                 lv_obj_set_style_text_color(save_label, lv_color_hex(0x00FF00), 0);
                 lv_obj_align(save_label, LV_ALIGN_CENTER, 0, 0);
                 lv_obj_del_delayed(save_label, 1000);
             } else if (is_double_click) {
-                // Not in edit mode: enter edit mode on double-click
                 start_band_x_freq_edit();
             }
-            // Single click on Band X in locked state but not in edit mode: do nothing
-        } else if (lock_flag == false) {
-            // Normal: Open menu when unlocked
+        } else if (lock_flag) {
+            // Unlocked (grey): open menu
             page_main_exit();
             lv_fun_param_delayed(page_menu_create, 500, 0);
         }
     }
-    else if (code == LV_EVENT_LONG_PRESSED)
-    {
-         beep_turn_on();
-        //beep_on_off(1);
-        //lv_fun_param_delayed(beep_on_off, 100, 0);
-        if (lock_flag == false)
-        {
+    else if (code == LV_EVENT_LONG_PRESSED) {
+        lv_key_t key = lv_indev_get_key(lv_indev_get_act());
+
+        // Directional keys never toggle lock (LONG_PRESSED only fires for ENTER on keypad indev)
+        if (key == LV_KEY_LEFT || key == LV_KEY_RIGHT ||
+            key == LV_KEY_UP || key == LV_KEY_DOWN) {
+            return;
+        }
+
+        // Center/ENTER long press: toggle lock/unlock
+        // lock_flag=false=RED=LOCKED, lock_flag=true=GREY=UNLOCKED
+        beep_turn_on();
+        if (!lock_flag) {
+            // Currently locked (red) → unlock (grey)
             lv_obj_set_style_bg_color(lock_btn, lv_color_make(160, 160, 160), LV_STATE_DEFAULT);
             lock_flag = true;
-        }
-        else
-        {
+            led_set_pattern(LED_PATTERN_HEARTBEAT);
+        } else {
+            // Currently unlocked (grey) → lock (red)
             lv_obj_set_style_bg_color(lock_btn, lv_color_make(255, 0, 0), LV_STATE_DEFAULT);
             lock_flag = false;
+            led_set_pattern(LED_PATTERN_SOLID);
         }
-        // 开启或关闭OSD与帧同步
-        video_composite_switch(lock_flag);
-        video_composite_sync_switch(lock_flag);
+        video_composite_switch(!lock_flag);
+        video_composite_sync_switch(!lock_flag);
+        // Item 4: slow LVGL refresh + Item 2: lower CPU when locked
+        system_set_lvgl_idle(!lock_flag);
+        system_set_cpu_context_idle(!lock_flag);
     }
 }
 
 static void page_main_update(lv_timer_t* tmr)
 {
-    // Update diversity algorithm (runs at 250Hz internally with timer checks)
-    diversity_update();
-    
+    // NOTE: diversity_update() was moved to a dedicated FreeRTOS task
+    // (diversity_task_fn in diversity.c, spawned from diversity_init) so that
+    // RX5808_Set_Freq() — which blocks ~50 ms during PLL settling — never
+    // stalls the LVGL rendering loop (fixes N + J).
+
     // Check for ExpressLRS backpack activity (safe task context)
     #if BACKPACK_DETECTION_ENABLED
     RX5808_Check_Backpack_Activity();
@@ -294,31 +431,34 @@ static void page_main_update(lv_timer_t* tmr)
         }
         lv_label_set_text(diversity_mode_label, mode_str);
         
-        // Highlight active antenna with border and make label flash/larger
+        // Highlight the bar that belongs to the active antenna.
+        // Bar/label mapping (determined by the bar-fill code below):
+        //   rssi_bar0 / lv_rsss0_label -> rssi1 = adc_converted_value[1] = RX_B
+        //   rssi_bar1 / lv_rsss1_label -> rssi0 = adc_converted_value[0] = RX_A
         if (active_rx == DIVERSITY_RX_A) {
-            // RX A active - make it larger and brighter
-            lv_obj_set_style_text_font(lv_rsss0_label, &lv_font_montserrat_16, LV_STATE_DEFAULT);
-            lv_obj_set_style_text_opa(lv_rsss0_label, LV_OPA_100, LV_STATE_DEFAULT);
-            lv_obj_set_style_text_color(lv_rsss0_label, lv_color_make(0, 255, 255), LV_STATE_DEFAULT);  // Bright cyan
-            lv_obj_set_style_border_width(rssi_bar0, 2, LV_PART_MAIN);
-            lv_obj_set_style_border_color(rssi_bar0, lv_color_make(0, 255, 0), LV_PART_MAIN);
-            // RX B inactive - smaller and dimmer
-            lv_obj_set_style_text_font(lv_rsss1_label, &lv_font_montserrat_12, LV_STATE_DEFAULT);
-            lv_obj_set_style_text_opa(lv_rsss1_label, LV_OPA_60, LV_STATE_DEFAULT);
-            lv_obj_set_style_text_color(lv_rsss1_label, lv_color_make(200, 0, 200), LV_STATE_DEFAULT);
-            lv_obj_set_style_border_width(rssi_bar1, 0, LV_PART_MAIN);
-        } else {
-            // RX B active - make it larger and brighter
+            // RX A active -> highlight rssi_bar1 / lv_rsss1_label
             lv_obj_set_style_text_font(lv_rsss1_label, &lv_font_montserrat_16, LV_STATE_DEFAULT);
             lv_obj_set_style_text_opa(lv_rsss1_label, LV_OPA_100, LV_STATE_DEFAULT);
-            lv_obj_set_style_text_color(lv_rsss1_label, lv_color_make(255, 0, 255), LV_STATE_DEFAULT);  // Bright magenta
+            lv_obj_set_style_text_color(lv_rsss1_label, lv_color_make(0, 255, 255), LV_STATE_DEFAULT);  // Bright cyan
             lv_obj_set_style_border_width(rssi_bar1, 2, LV_PART_MAIN);
             lv_obj_set_style_border_color(rssi_bar1, lv_color_make(0, 255, 0), LV_PART_MAIN);
-            // RX A inactive - smaller and dimmer
+            // RX B inactive - smaller and dimmer
             lv_obj_set_style_text_font(lv_rsss0_label, &lv_font_montserrat_12, LV_STATE_DEFAULT);
             lv_obj_set_style_text_opa(lv_rsss0_label, LV_OPA_60, LV_STATE_DEFAULT);
-            lv_obj_set_style_text_color(lv_rsss0_label, lv_color_make(0, 0, 255), LV_STATE_DEFAULT);
+            lv_obj_set_style_text_color(lv_rsss0_label, lv_color_make(200, 0, 200), LV_STATE_DEFAULT);
             lv_obj_set_style_border_width(rssi_bar0, 0, LV_PART_MAIN);
+        } else {
+            // RX B active -> highlight rssi_bar0 / lv_rsss0_label
+            lv_obj_set_style_text_font(lv_rsss0_label, &lv_font_montserrat_16, LV_STATE_DEFAULT);
+            lv_obj_set_style_text_opa(lv_rsss0_label, LV_OPA_100, LV_STATE_DEFAULT);
+            lv_obj_set_style_text_color(lv_rsss0_label, lv_color_make(255, 0, 255), LV_STATE_DEFAULT);  // Bright magenta
+            lv_obj_set_style_border_width(rssi_bar0, 2, LV_PART_MAIN);
+            lv_obj_set_style_border_color(rssi_bar0, lv_color_make(0, 255, 0), LV_PART_MAIN);
+            // RX A inactive - smaller and dimmer
+            lv_obj_set_style_text_font(lv_rsss1_label, &lv_font_montserrat_12, LV_STATE_DEFAULT);
+            lv_obj_set_style_text_opa(lv_rsss1_label, LV_OPA_60, LV_STATE_DEFAULT);
+            lv_obj_set_style_text_color(lv_rsss1_label, lv_color_make(0, 0, 255), LV_STATE_DEFAULT);
+            lv_obj_set_style_border_width(rssi_bar1, 0, LV_PART_MAIN);
         }
     }
     
@@ -332,7 +472,7 @@ static void page_main_update(lv_timer_t* tmr)
         // Dynamic RSSI bar colors based on signal strength
         lv_color_t color0, color1;
         
-        // RX A (rssi1) color
+        // rssi_bar0 shows RX_B (rssi1) color
         if (rssi1 >= 70) {
             color0 = lv_color_make(0, 255, 0);  // Green - excellent
         } else if (rssi1 >= 40) {
@@ -342,7 +482,7 @@ static void page_main_update(lv_timer_t* tmr)
         }
         lv_obj_set_style_bg_color(rssi_bar0, color0, LV_PART_INDICATOR);
         
-        // RX B (rssi0) color
+        // rssi_bar1 shows RX_A (rssi0) color
         if (rssi0 >= 70) {
             color1 = lv_color_make(0, 255, 0);  // Green - excellent
         } else if (rssi0 >= 40) {
@@ -433,6 +573,18 @@ static void blink_timer_callback(lv_timer_t* timer)
 {
     if (!band_x_freq_edit_mode) return;
     
+    // Handle auto-repeat if key is held
+    if (bandx_key_is_held && bandx_key_press_start > 0) {
+        uint32_t hold_duration = lv_tick_get() - bandx_key_press_start;
+        
+        // Start auto-repeat after 500ms hold
+        if (hold_duration >= BANDX_AUTO_REPEAT_START_MS) {
+            // Trigger frequency adjustment
+            int8_t direction = (bandx_held_key == LV_KEY_UP) ? 1 : -1;
+            bandx_adjust_frequency(direction);
+        }
+    }
+    
     blink_visible = !blink_visible;
     
     // Toggle visibility of frequency labels with asymmetric timing
@@ -457,15 +609,24 @@ static void start_band_x_freq_edit(void)
     band_x_freq_edit_mode = true;
     blink_visible = true;
     
-    // Create blink timer (start with 600ms visible period)
+    // Create blink timer (100ms period for both blink and auto-repeat)
     if (blink_timer == NULL) {
-        blink_timer = lv_timer_create(blink_timer_callback, 600, NULL);
+        blink_timer = lv_timer_create(blink_timer_callback, 100, NULL);
+    }
+    
+    // Show initial frequency in green (standard range assumed)
+    uint16_t freq = RX5808_Get_Band_X_Freq(channel_count);
+    uint32_t color = bandx_get_freq_color(freq);
+    for (uint8_t i = 0; i < fre_label_count; i++) {
+        lv_obj_set_style_text_color(frequency_label[fre_cur][i], lv_color_hex(color), LV_STATE_DEFAULT);
     }
 }
 
 static void stop_band_x_freq_edit(void)
 {
     band_x_freq_edit_mode = false;
+    bandx_key_is_held = false;
+    bandx_key_press_start = 0;
     
     // Delete blink timer
     if (blink_timer != NULL) {
@@ -473,10 +634,70 @@ static void stop_band_x_freq_edit(void)
         blink_timer = NULL;
     }
     
-    // Ensure frequency labels are visible
+    // Ensure frequency labels are visible and reset color to white
     blink_visible = true;
     for (uint8_t i = 0; i < fre_label_count; i++) {
         lv_obj_clear_flag(frequency_label[fre_cur][i], LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_style_text_color(frequency_label[fre_cur][i], lv_color_hex(0xFFFFFF), LV_STATE_DEFAULT);
+    }
+}
+
+/**
+ * @brief Get validation color for Band X frequency
+ * @param freq Frequency in MHz
+ * @return Color hex value (green  for valid standard range, amber for extended, red for out of range)
+ */
+static uint32_t bandx_get_freq_color(uint16_t freq)
+{
+    if (freq >= 5645 && freq <= 5945) {
+        // Standard FPV racing range - green
+        return 0x00FF00;
+    } else if (freq >= 5300 && freq < 5645) {
+        // Extended low range - amber
+        return 0xFFA500;
+    } else if (freq > 5945 && freq <= 5950) {
+        // Extended high range - amber
+        return 0xFFA500;
+    } else {
+        // Out of range - red
+        return 0xFF0000;
+    }
+}
+
+/**
+ * @brief Adjust Band X frequency with auto-repeat and fast adjust
+ * @param direction 1 for increase, -1 for decrease
+ */
+static void bandx_adjust_frequency(int8_t direction)
+{
+    uint16_t freq = RX5808_Get_Band_X_Freq(channel_count);
+    uint32_t hold_duration = lv_tick_get() - bandx_key_press_start;
+    
+    // Determine step size based on hold duration
+    uint16_t step = 1;  // Default: 1 MHz
+    if (hold_duration >= BANDX_FAST_ADJUST_START_MS) {
+        step = 10;  // Fast adjust: 10 MHz after 2s
+    }
+    
+    // Adjust frequency
+    if (direction > 0) {
+        freq += step;
+        if (freq > 5950) freq = 5950;
+    } else {
+        freq -= step;
+        if (freq < 5300) freq = 5300;
+    }
+    
+    // Apply frequency
+    RX5808_Set_Band_X_Freq(channel_count, freq);
+    RX5808_Set_Freq(freq);
+    blink_visible = true;  // Show frequency during adjustment
+    fre_label_update_band_x(freq);
+    
+    // Update color based on range validation
+    uint32_t color = bandx_get_freq_color(freq);
+    for (uint8_t i = 0; i < fre_label_count; i++) {
+        lv_obj_set_style_text_color(frequency_label[fre_cur][i], lv_color_hex(color), LV_STATE_DEFAULT);
     }
 }
 
@@ -631,6 +852,30 @@ void page_main_create()
 {
     page_main_active = true;  // Mark page as active
     
+    // Initialize LED module (Phase 7: LED Status Feedback)
+    static bool led_initialized = false;
+    if (!led_initialized) {
+        led_init();
+        led_initialized = true;
+    }
+    
+    // Set initial LED pattern based on lock state
+    // lock_flag=false=RED=LOCKED, lock_flag=true=GREY=UNLOCKED
+    if (!lock_flag) {
+        led_set_pattern(LED_PATTERN_SOLID);      // Locked: Solid LED
+    } else {
+        led_set_pattern(LED_PATTERN_HEARTBEAT);  // Unlocked: Heartbeat
+    }
+    // Apply initial power context based on lock state
+    system_set_lvgl_idle(!lock_flag);
+    system_set_cpu_context_idle(!lock_flag);
+    
+    // Initialize navigation module with lock state
+    navigation_init(&lock_flag);
+    
+    // Initialize quick menu
+    quick_menu = quick_menu_init();
+    
     main_contain = lv_obj_create(lv_scr_act());
     lv_obj_remove_style_all(main_contain);
     lv_obj_set_style_bg_color(main_contain, lv_color_make(0, 0, 0), LV_STATE_DEFAULT);
@@ -764,6 +1009,8 @@ static void page_main_group_create()
 static void page_main_exit()
 {
     page_main_active = false;  // Mark page as inactive to prevent callbacks
+    system_set_lvgl_idle(false);
+    system_set_cpu_context_idle(false);
     
     // Clean up Band X frequency edit mode if active
     if (band_x_freq_edit_mode) {

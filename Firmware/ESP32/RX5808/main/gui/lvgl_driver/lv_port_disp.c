@@ -44,8 +44,8 @@ void esp32_video(void *param);
 /**********************
  *   GLOBAL FUNCTIONS
  **********************/
-static void IRAM_ATTR composite_rounder_cb(lv_disp_drv_t * disp_drv, lv_area_t * area);
-void IRAM_ATTR composite_monitor_cb(lv_disp_drv_t *disp_drv, uint32_t time_ms, uint32_t px_num);
+static void composite_rounder_cb(lv_disp_drv_t * disp_drv, lv_area_t * area);
+void composite_monitor_cb(lv_disp_drv_t *disp_drv, uint32_t time_ms, uint32_t px_num);
 bool get_video_switch(void) {
     return g_dac_video_render;
 }

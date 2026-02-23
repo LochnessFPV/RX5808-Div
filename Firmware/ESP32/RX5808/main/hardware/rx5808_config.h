@@ -14,6 +14,7 @@
 #define  START_ANIMATION_DEFAULT  STATUS_ON
 #define  BEEP_DEFAULT             STATUS_OFF
 #define  BACKLIGHT_DEFAULT        100
+#define  LED_BRIGHTNESS_DEFAULT   100
 #define  FAN_SPEED_DEFAULT        100
 #define  CHANNEL_DEFAULT          0
 #define  RSSI0_MIN_DEFAULT        0
@@ -24,10 +25,10 @@
 #define  LANGUAGE_DEFAULT         0               //English
 #define  SIGNAL_SOURCE_DEFAULT    0               //auto
 // ELRS_BACKPACK removed - binding managed through ELRS_Backpack API in page_setup.c
-#define  CPU_FREQ_DEFAULT         1               //160MHz (0=80MHz, 1=160MHz, 2=240MHz)
+#define  CPU_FREQ_DEFAULT         3               //AUTO (0=80MHz, 1=160MHz, 2=240MHz, 3=AUTO)
 #define  GUI_UPDATE_RATE_DEFAULT  1               //70ms = 14Hz (0=100ms/10Hz, 1=70ms/14Hz, 2=50ms/20Hz, 3=40ms/25Hz, 4=20ms/50Hz, 5=10ms/100Hz)
 
-#define  SETUP_ID_DEFAULT         0x1234
+#define  SETUP_ID_DEFAULT         0x1235
 
 	
 typedef enum
@@ -35,6 +36,7 @@ typedef enum
 		rx5808_div_config_start_animation=0,
 		rx5808_div_config_beep,
 		rx5808_div_config_backlight,
+		rx5808_div_config_led_brightness,
 		rx5808_div_config_fan_speed,
 		rx5808_div_config_channel,
 		rx5808_div_config_rssi_adc_value_min0,

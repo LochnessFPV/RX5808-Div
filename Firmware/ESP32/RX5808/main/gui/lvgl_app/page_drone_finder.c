@@ -14,7 +14,6 @@ static lv_obj_t* rssi_label_a;
 static lv_obj_t* rssi_label_b;
 static lv_obj_t* peak_label_a;
 static lv_obj_t* peak_label_b;
-static lv_obj_t* instruction_label;
 static lv_obj_t* exit_button;
 static lv_group_t* finder_group;
 static lv_timer_t* update_timer;
@@ -35,7 +34,7 @@ static void event_handler(lv_event_t* event)
         if (key == LV_KEY_LEFT || key == LV_KEY_ENTER) {
             beep_turn_on();
             page_drone_finder_exit();
-            lv_fun_param_delayed(page_menu_create, 500, item_scan);
+            lv_fun_param_delayed(page_menu_create, 500, item_drone_finder);
         }
         else if (key == LV_KEY_RIGHT) {
             // Reset peak values

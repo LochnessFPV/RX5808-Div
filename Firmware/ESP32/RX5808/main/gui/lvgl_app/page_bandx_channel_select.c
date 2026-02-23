@@ -19,7 +19,6 @@ static lv_obj_t* page_contain;
 static lv_obj_t* title_label;
 static lv_obj_t* instruction_label;
 static lv_obj_t* channel_labels[8];
-static lv_obj_t* freq_labels[8];
 static lv_group_t* channel_group;
 
 // State
@@ -37,21 +36,14 @@ static void update_channel_display(void);
 static void update_channel_display(void)
 {
     for (int i = 0; i < 8; i++) {
-        if (i == selected_channel) {
-            // Highlight selected channel
-            lv_obj_set_style_text_color(channel_labels[i], lv_color_hex(0x00FF00), 0);
-            lv_obj_set_style_text_color(freq_labels[i], lv_color_hex(0x00FF00), 0);
-            lv_label_set_text_fmt(channel_labels[i], "> CH%d <", i + 1);
-        } else {
-            // Normal display
-            lv_obj_set_style_text_color(channel_labels[i], lv_color_hex(0xC0C0C0), 0);
-            lv_obj_set_style_text_color(freq_labels[i], lv_color_hex(0x808080), 0);
-            lv_label_set_text_fmt(channel_labels[i], "  CH%d  ", i + 1);
-        }
-        
-        // Update frequency display
         uint16_t freq = RX5808_Get_Band_X_Freq(i);
-        lv_label_set_text_fmt(freq_labels[i], "%d MHz", freq);
+        if (i == selected_channel) {
+            lv_obj_set_style_text_color(channel_labels[i], lv_color_hex(0x00FF00), 0);
+            lv_label_set_text_fmt(channel_labels[i], ">CH%d %d", i + 1, freq);
+        } else {
+            lv_obj_set_style_text_color(channel_labels[i], lv_color_hex(0x808080), 0);
+            lv_label_set_text_fmt(channel_labels[i], " CH%d %d", i + 1, freq);
+        }
     }
 }
 
@@ -210,35 +202,30 @@ void page_bandx_channel_select_create(void)
     
     // Title
     title_label = lv_label_create(page_contain);
-    lv_label_set_text(title_label, "Band X Channel");
+    lv_label_set_text(title_label, "Band X Edit");
     lv_obj_set_style_text_font(title_label, &lv_font_chinese_12, 0);
     lv_obj_set_style_text_color(title_label, lv_color_hex(0x00E0E0), 0);
     lv_obj_align(title_label, LV_ALIGN_TOP_MID, 0, 0);
     
     // Instructions
     instruction_label = lv_label_create(page_contain);
-    lv_label_set_text(instruction_label, "Hold ENTER=Exit");
+    lv_label_set_text(instruction_label, "OK=Spectrum  Hold=Exit");
     lv_obj_set_style_text_font(instruction_label, &lv_font_chinese_12, 0);
     lv_obj_set_style_text_color(instruction_label, lv_color_hex(0xFFFF00), 0);
     lv_obj_align(instruction_label, LV_ALIGN_TOP_MID, 0, 14);
     
-    // Create 2 columns of 4 channels each
+    // Create 2 columns of 4 channels each — single merged label per slot
+    // Col 0: x=2 (CH1-CH4), Col 1: x=82 (CH5-CH8), each 76px wide
+    // Format: ">CH1 5705" / " CH1 5705" — no MHz suffix saves space
     for (int i = 0; i < 8; i++) {
         int col = i / 4;  // 0 or 1
         int row = i % 4;  // 0, 1, 2, 3
         
-        // Channel label (e.g., "CH1")
         channel_labels[i] = lv_label_create(page_contain);
-        lv_label_set_text_fmt(channel_labels[i], "  CH%d  ", i + 1);
         lv_obj_set_style_text_font(channel_labels[i], &lv_font_chinese_12, 0);
-        lv_obj_set_pos(channel_labels[i], 10 + col * 80, 30 + row * 12);
-        
-        // Frequency label
-        freq_labels[i] = lv_label_create(page_contain);
-        uint16_t freq = RX5808_Get_Band_X_Freq(i);
-        lv_label_set_text_fmt(freq_labels[i], "%d MHz", freq);
-        lv_obj_set_style_text_font(freq_labels[i], &lv_font_chinese_12, 0);
-        lv_obj_set_pos(freq_labels[i], 45 + col * 80, 30 + row * 12);
+        lv_obj_set_pos(channel_labels[i], 2 + col * 80, 28 + row * 13);
+        lv_obj_set_size(channel_labels[i], 76, 13);
+        lv_label_set_long_mode(channel_labels[i], LV_LABEL_LONG_CLIP);
     }
     
     // Update initial display

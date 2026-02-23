@@ -1,8 +1,7 @@
 #include "rx5808.h"
 #include "driver/gpio.h"
-#include "driver/adc.h"
 #include "driver/spi_master.h"
-#include "esp_adc_cal.h"
+#include "esp_adc/adc_oneshot.h"
 #include "esp_log.h"
 #include "sys/unistd.h"
 #include "esp_timer.h"
@@ -10,7 +9,7 @@
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include "hwvers.h"
-#include "nvs_flash.h"
+#include "led.h"
 #include "nvs_flash.h"
 #include "nvs.h"
 
@@ -18,6 +17,10 @@ static const char *TAG = "RX5808";
 
 // SPI Bus Mutex - protects soft SPI from concurrent access
 static SemaphoreHandle_t spi_mutex = NULL;
+// Serialises all adc_oneshot_read() calls so that the Core-1 RSSI burst and
+// the Core-0 LVGL keypad reader never race on the same adc1_handle.
+// adc_oneshot_read() is not thread-safe per IDF documentation.
+static SemaphoreHandle_t adc_mutex = NULL;
 
 // Hardware SPI device handle for RX5808 (DMA-accelerated)
 static spi_device_handle_t rx5808_spi = NULL;
@@ -58,7 +61,11 @@ uint16_t adc_converted_value[3]={1024,1024,1024};
 // RSSI filtering buffers for smoother readings
 static uint16_t rssi0_filter_buffer[RSSI_FILTER_SIZE] = {0};
 static uint16_t rssi1_filter_buffer[RSSI_FILTER_SIZE] = {0};
-static uint8_t rssi_filter_index = 0;
+// Each buffer has its own independent write-index so that calling
+// Rx5808_Get_Precentage0() and Rx5808_Get_Precentage1() in any order
+// never advances the other buffer's cursor out of phase.
+static uint8_t rssi0_filter_index = 0;
+static uint8_t rssi1_filter_index = 0;
 
 // Band X (User Favorites) custom frequency storage
 // These are modifiable copies of Band X frequencies
@@ -67,6 +74,9 @@ static bool Band_X_Loaded = false;
 
 // NVS keys for Band X
 #define NVS_NAMESPACE_BANDX "band_x"
+// Current format (since v1.8.x): single blob storing uint16_t[8]
+#define NVS_KEY_BANDX_FREQS "x_freqs"
+// Legacy per-channel keys (pre-v1.8.x) — kept only for one-time migration on upgrade
 #define NVS_KEY_BANDX_CH1 "x_ch1"
 #define NVS_KEY_BANDX_CH2 "x_ch2"
 #define NVS_KEY_BANDX_CH3 "x_ch3"
@@ -92,8 +102,9 @@ volatile uint16_t Rx5808_RSSI_Ad_Max1=4095;
 volatile uint16_t Rx5808_OSD_Format=0;
 volatile uint16_t Rx5808_Language=1;
 volatile uint16_t Rx5808_Signal_Source=0;
+volatile uint16_t Rx5808_LED_Brightness=100;
 // ELRS Backpack: No longer a simple toggle - binding managed through page_setup.c UI
-volatile uint16_t Rx5808_CPU_Freq=1;  // 160MHz by default (0=80MHz, 1=160MHz, 2=240MHz)
+volatile uint16_t Rx5808_CPU_Freq=3;  // AUTO by default (0=80MHz, 1=160MHz, 2=240MHz, 3=AUTO)
 volatile uint16_t Rx5808_GUI_Update_Rate=1;  // 70ms (14Hz) by default (0=100ms/10Hz, 1=70ms/14Hz, 2=50ms/20Hz, 3=40ms/25Hz, 4=20ms/50Hz, 5=10ms/100Hz)
 
 const char Rx5808_ChxMap[7] = {'A', 'B', 'E', 'F', 'R', 'L', 'X'};
@@ -101,73 +112,49 @@ const uint16_t Rx5808_Freq[7][8]=
 {
 	{5865,5845,5825,5805,5785,5765,5745,5725},	    //A	CH1-8 (BOSCAM_A)
     {5733,5752,5771,5790,5809,5828,5847,5866},		//B	CH1-8 (BOSCAM_B)
-    {5705,5685,5665,5800,5885,5905,5800,5800},		//E	CH1-8 (BOSCAM_E) - Ch4,7,8 use F4 (disabled in standard VTX)
+    {5705,5685,5665,5645,5885,5905,5925,5945},		//E	CH1-8 (BOSCAM_E) - restored original frequencies
     {5740,5760,5780,5800,5820,5840,5860,5880},		//F	CH1-8 (FATSHARK)
     {5658,5695,5732,5769,5806,5843,5880,5917},		//R	CH1-8 (RACEBAND)
     {5362,5399,5436,5473,5510,5547,5584,5621},		//L	CH1-8 (LOWBAND)
     {5658,5695,5732,5769,5806,5843,5880,5917}		//X	CH1-8 (USER FAVORITES - default to RACEBAND)
 };
 
-static esp_adc_cal_characteristics_t adc1_chars;
-
-#define ADC_RESULT_BYTE     2
-#define ADC_CONV_LIMIT_EN   1                       //For ESP32, this should always be set to 1
-#define ADC_CONV_MODE       ADC_CONV_SINGLE_UNIT_1  //ESP32 only supports ADC1 DMA mode
-#define ADC_OUTPUT_TYPE     ADC_DIGI_OUTPUT_FORMAT_TYPE1
+static adc_oneshot_unit_handle_t adc1_handle = NULL;
 
 
 
-void RX5808_RSSI_ADC_Init()
+void RX5808_RSSI_ADC_Init(void)
 {
-     esp_err_t ret;
-    ret = esp_adc_cal_check_efuse(ESP_ADC_CAL_VAL_EFUSE_VREF);
-    if (ret == ESP_OK) {
-        esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN_DB_11, ADC_WIDTH_BIT_DEFAULT, 0, &adc1_chars);
-    } else {
-        printf("adc calib failed!\n");
-    }
-    adc_set_clk_div(1);
-    adc1_config_width(ADC_WIDTH_BIT_12);
-    adc1_config_channel_atten(RX5808_RSSI0_CHAN, ADC_ATTEN_DB_11);
-	adc1_config_channel_atten(RX5808_RSSI1_CHAN, ADC_ATTEN_DB_11);
-	adc1_config_channel_atten(VBAT_ADC_CHAN, ADC_ATTEN_DB_11);
-	adc1_config_channel_atten(KEY_ADC_CHAN, ADC_ATTEN_DB_11);
+    /* --- IDF v5.x oneshot ADC driver --- */
+    adc_oneshot_unit_init_cfg_t unit_cfg = {
+        .unit_id  = ADC_UNIT_1,
+        .ulp_mode = ADC_ULP_MODE_DISABLE,
+    };
+    ESP_ERROR_CHECK(adc_oneshot_new_unit(&unit_cfg, &adc1_handle));
 
+    adc_oneshot_chan_cfg_t ch_cfg = {
+        .atten    = ADC_ATTEN_DB_12,
+        .bitwidth = ADC_BITWIDTH_DEFAULT,
+    };
+    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc1_handle, RX5808_RSSI0_CHAN, &ch_cfg));
+    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc1_handle, RX5808_RSSI1_CHAN, &ch_cfg));
+    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc1_handle, VBAT_ADC_CHAN,     &ch_cfg));
+    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc1_handle, KEY_ADC_CHAN,      &ch_cfg));
+}
 
-    // adc_digi_init_config_t adc_dma_config = {
-    //     .max_store_buf_size = 1024,
-    //     .conv_num_each_intr = 32,
-    //     .adc1_chan_mask = BIT(7),
-    //     .adc2_chan_mask = 0,
-    // };
-    // ESP_ERROR_CHECK(adc_digi_initialize(&adc_dma_config));
-
-    // adc_digi_configuration_t dig_cfg = {
-    //     .conv_limit_en = ADC_CONV_LIMIT_EN,
-    //     .conv_limit_num = 32,
-    //     .sample_freq_hz = 40 * 1000,
-    //     .conv_mode = ADC_CONV_MODE,
-    //     .format = ADC_OUTPUT_TYPE,
-    // };
-
-    // adc_digi_pattern_config_t adc_pattern[SOC_ADC_PATT_LEN_MAX] = {0};
-    // dig_cfg.pattern_num = 4;
-    // for (int i = 0; i < 4; i++) {
-    //     uint8_t unit = GET_UNIT(adc_dma_chan[i]);
-    //     uint8_t ch = adc_dma_chan[i] & 0x7;
-    //     adc_pattern[i].atten = ADC_ATTEN_DB_11;
-    //     adc_pattern[i].channel = ch;
-    //     adc_pattern[i].unit = unit;
-    //     adc_pattern[i].bit_width = SOC_ADC_DIGI_MAX_BITWIDTH;
-
-    //     //ESP_LOGI(TAG, "adc_pattern[%d].atten is :%x", i, adc_pattern[i].atten);
-    //    // ESP_LOGI(TAG, "adc_pattern[%d].channel is :%x", i, adc_pattern[i].channel);
-    //     //ESP_LOGI(TAG, "adc_pattern[%d].unit is :%x", i, adc_pattern[i].unit);
-    // }
-    // dig_cfg.adc_pattern = adc_pattern;
-    // ESP_ERROR_CHECK(adc_digi_controller_configure(&dig_cfg));
-	// adc_digi_start();
-
+/**
+ * @brief Read a raw ADC sample from any configured ADC1 channel.
+ *        Used by other drivers (e.g. lvgl keypad) that share the oneshot unit.
+ * @param channel  ADC1 channel number (adc_channel_t cast to int)
+ * @return raw 12-bit ADC reading, or 0 on error
+ */
+int RX5808_ADC_Read_Raw(int channel)
+{
+    int raw = 0;
+    if (adc_mutex != NULL) xSemaphoreTake(adc_mutex, portMAX_DELAY);
+    adc_oneshot_read(adc1_handle, (adc_channel_t)channel, &raw);
+    if (adc_mutex != NULL) xSemaphoreGive(adc_mutex);
+    return raw;
 }
 
 /**
@@ -225,6 +212,12 @@ void RX5808_Init()
     spi_mutex = xSemaphoreCreateMutex();
     if (spi_mutex == NULL) {
         ESP_LOGE(TAG, "Failed to create SPI mutex!");
+    }
+    // Create ADC mutex — must exist before RX5808_RSSI_ADC_Init() and before
+    // the RSSI task starts, so any early RX5808_ADC_Read_Raw() call is safe.
+    adc_mutex = xSemaphoreCreateMutex();
+    if (adc_mutex == NULL) {
+        ESP_LOGE(TAG, "Failed to create ADC mutex!");
     }
     
     // Initialize hardware SPI for RX5808 (DMA-accelerated)
@@ -289,6 +282,24 @@ void Soft_SPI_Send_One_Bit(uint8_t bit)
 
 void Send_Register_Data(uint8_t addr,uint32_t data)   
 {
+    // Serialise all SPI accesses with a single mutex (fix M).
+    //
+    // The hardware SPI path uses spi_device_queue_trans() followed by
+    // spi_device_get_trans_result().  Although spi_device_queue_trans() is
+    // internally queue-safe, the queue/get pair is NOT atomic: a second task
+    // calling queue_trans while the first task is inside get_trans_result
+    // could steal the transaction result.  Since v1.8.x introduced a
+    // dedicated diversity_task that calls RX5808_Set_Freq() concurrently with
+    // the ELRS backpack task, the mutex must wrap both the hardware and soft-
+    // SPI branches.
+    //
+    // Note: spi_mutex is created at the very start of RX5808_Init(), before
+    // any tasks that call Send_Register_Data() are spawned, so it is always
+    // valid here.
+    if (spi_mutex != NULL) {
+        xSemaphoreTake(spi_mutex, portMAX_DELAY);
+    }
+
   if (rx5808_spi_initialized && rx5808_spi != NULL) {
       // Hardware SPI with DMA (v1.7.1)
       // RX5808 protocol: 4-bit addr + 1-bit R/W + 20-bit data = 25 bits (LSB first)
@@ -322,11 +333,6 @@ void Send_Register_Data(uint8_t addr,uint32_t data)
       }
   } else {
       // Fallback to bit-banged SPI if hardware SPI fails
-      // Take mutex before accessing SPI bus
-      if (spi_mutex != NULL) {
-          xSemaphoreTake(spi_mutex, portMAX_DELAY);
-      }
-      
       gpio_set_level(RX5808_CS, 0);
       uint8_t read_write=1;   //1 write     0 read
      
@@ -339,12 +345,11 @@ void Send_Register_Data(uint8_t addr,uint32_t data)
 	  gpio_set_level(RX5808_CS, 1);
 	  gpio_set_level(RX5808_SCLK, 0);
 	  gpio_set_level(RX5808_MOSI, 0);
-	  
-	  // Release mutex after SPI access
-	  if (spi_mutex != NULL) {
-	      xSemaphoreGive(spi_mutex);
-	  }
   }
+
+    if (spi_mutex != NULL) {
+        xSemaphoreGive(spi_mutex);
+    }
 }
 
 void RX5808_Set_Freq(uint16_t Fre)   
@@ -416,20 +421,26 @@ void RX5808_Set_Signal_Source(uint16_t value)
     Rx5808_Signal_Source = value;
 }
 
+void RX5808_Set_LED_Brightness(uint16_t value)
+{
+	if (value > 100) value = 100;
+	Rx5808_LED_Brightness = value;
+	led_set_brightness((uint8_t)value);
+}
+
 // ELRS Backpack functions removed - binding now managed through ELRS_Backpack API in page_setup.c
 
 void RX5808_Set_CPU_Freq(uint16_t value)
 {
-    if (value > 2) value = 1;  // Default to 160MHz if invalid
+	if (value > 3) value = 3;  // Default to AUTO if invalid
     Rx5808_CPU_Freq = value;
-    ESP_LOGI(TAG, "CPU Frequency set to: %s", value == 0 ? "80MHz" : (value == 1 ? "160MHz" : "240MHz"));
+	ESP_LOGI(TAG, "CPU Frequency set to: %s", value == 0 ? "80MHz" : (value == 1 ? "160MHz" : (value == 2 ? "240MHz" : "AUTO")));
 }
 
 void RX5808_Set_GUI_Update_Rate(uint16_t value)
 {
     if (value > 5) value = 1;  // Default to 70ms if invalid
     Rx5808_GUI_Update_Rate = value;
-    const uint16_t rates_ms[] = {100, 70, 50, 40, 20, 10};
     const char* rates_str[] = {"10Hz/100ms", "14Hz/70ms", "20Hz/50ms", "25Hz/40ms", "50Hz/20ms", "100Hz/10ms"};
     ESP_LOGI(TAG, "GUI/Diversity Update Rate set to: %s", rates_str[value]);
 }
@@ -472,6 +483,11 @@ uint16_t RX5808_Get_Signal_Source()
     return Rx5808_Signal_Source;
 }
 
+uint16_t RX5808_Get_LED_Brightness()
+{
+	return Rx5808_LED_Brightness;
+}
+
 // ELRS Backpack functions removed - binding now managed through ELRS_Backpack API in page_setup.c
 
 uint16_t RX5808_Get_CPU_Freq()
@@ -507,10 +523,11 @@ float Rx5808_Calculate_RSSI_Precentage(uint16_t value, uint16_t min, uint16_t ma
    return precent;   
 }
 
-// Apply moving average filter to RSSI value for smoother readings
-static uint16_t filter_rssi(uint16_t new_value, uint16_t *buffer) {
-    buffer[rssi_filter_index] = new_value;
-    rssi_filter_index = (rssi_filter_index + 1) % RSSI_FILTER_SIZE;
+// Apply moving average filter to RSSI value for smoother readings.
+// index must be a pointer to the per-buffer write cursor (rssi0/1_filter_index).
+static uint16_t filter_rssi(uint16_t new_value, uint16_t *buffer, uint8_t *index) {
+    buffer[*index] = new_value;
+    *index = (*index + 1) % RSSI_FILTER_SIZE;
     
     uint32_t sum = 0;
     for(int i = 0; i < RSSI_FILTER_SIZE; i++) {
@@ -522,14 +539,14 @@ static uint16_t filter_rssi(uint16_t new_value, uint16_t *buffer) {
 float Rx5808_Get_Precentage0()
 {
     // Apply smoothing filter before calculating percentage
-    uint16_t filtered_value = filter_rssi(adc_converted_value[0], rssi0_filter_buffer);
+    uint16_t filtered_value = filter_rssi(adc_converted_value[0], rssi0_filter_buffer, &rssi0_filter_index);
     return Rx5808_Calculate_RSSI_Precentage(filtered_value, Rx5808_RSSI_Ad_Min0, Rx5808_RSSI_Ad_Max0);
 }
 
 float Rx5808_Get_Precentage1()
 {
     // Apply smoothing filter before calculating percentage
-    uint16_t filtered_value = filter_rssi(adc_converted_value[1], rssi1_filter_buffer);
+    uint16_t filtered_value = filter_rssi(adc_converted_value[1], rssi1_filter_buffer, &rssi1_filter_index);
     return Rx5808_Calculate_RSSI_Precentage(filtered_value, Rx5808_RSSI_Ad_Min1, Rx5808_RSSI_Ad_Max1);
 }
 
@@ -544,21 +561,27 @@ float Get_Battery_Voltage()
 void DMA2_Stream0_IRQHandler(void)     
 {
 	//static uint16_t count=0;
-	static uint8_t rx5808_cur_receiver_best=rx5808_receiver_count;
-	static uint8_t rx5808_pre_receiver_best=rx5808_receiver_count;
 
 	while(1)
 	{
     uint32_t sum0=0,sum1=0;
-    
-	for(int i=0;i<16;i++)
-	{
-		sum0+=adc1_get_raw(RX5808_RSSI0_CHAN);
-		sum1+=adc1_get_raw(RX5808_RSSI1_CHAN);
-	}
-	adc_converted_value[0]=sum0>>4;		
-	adc_converted_value[1]=sum1>>4;	
-	adc_converted_value[2]=adc1_get_raw(VBAT_ADC_CHAN);		
+
+    int _adc_raw;
+    // Hold adc_mutex for the entire burst so RX5808_ADC_Read_Raw() (Core 0,
+    // LVGL keypad) cannot interleave and get a 0 back from a busy unit.
+    if (adc_mutex != NULL) xSemaphoreTake(adc_mutex, portMAX_DELAY);
+    for(int i=0;i<16;i++)
+    {
+        adc_oneshot_read(adc1_handle, RX5808_RSSI0_CHAN, &_adc_raw); sum0 += _adc_raw;
+        adc_oneshot_read(adc1_handle, RX5808_RSSI1_CHAN, &_adc_raw); sum1 += _adc_raw;
+    }
+    // Note: static cur/pre receiver_best locals removed — only used in old simple-diversity
+    // else-branch which has been deleted (see below).
+    adc_converted_value[0] = sum0 >> 4;
+    adc_converted_value[1] = sum1 >> 4;
+    adc_oneshot_read(adc1_handle, VBAT_ADC_CHAN, &_adc_raw);
+    adc_converted_value[2] = (uint16_t)_adc_raw;
+    if (adc_mutex != NULL) xSemaphoreGive(adc_mutex);
 		
 	int sig_src = Rx5808_Signal_Source;
 	// 关断则都为0
@@ -578,39 +601,10 @@ void DMA2_Stream0_IRQHandler(void)
 		gpio_set_level(RX5808_SWITCH0, 0);
 		gpio_set_level(RX5808_SWITCH1, 0);
 	}
-	else
-	{
-		float rssi0=Rx5808_Get_Precentage0();
-		float rssi1=Rx5808_Get_Precentage1();
-		float rssi_diff=0;
-		if(rssi0>rssi1){
-			rssi_diff=rssi0-rssi1;
-		}
-		else{
-			rssi_diff=rssi1-rssi0;
-		}
-		if(rssi_diff>=RX5808_TOGGLE_DEAD_ZONE)
-		{
-			if(rssi0>rssi1){
-			rx5808_cur_receiver_best=rx5808_receiver0;
-			}
-			else{
-			rx5808_cur_receiver_best=rx5808_receiver1;
-			}
-			if(rx5808_cur_receiver_best==rx5808_pre_receiver_best){
-				if(rx5808_cur_receiver_best==rx5808_receiver0){
-					gpio_set_level(RX5808_SWITCH0, 1);
-					gpio_set_level(RX5808_SWITCH1, 0);
-				}
-				else if(rx5808_cur_receiver_best==rx5808_receiver1) {
-					gpio_set_level(RX5808_SWITCH1, 1);
-					gpio_set_level(RX5808_SWITCH0, 0);
-				}
-			}	
-			rx5808_pre_receiver_best=rx5808_cur_receiver_best;		
-		}
-
-		}
+	// sig_src == 0 (Auto): diversity.c task owns GPIO switching via
+	// diversity_perform_switch(). Do NOT write SWITCH0/SWITCH1 here —
+	// the old simple algorithm ran with inverted polarity vs diversity.c
+	// and caused them to fight each other on every 25 ms cycle.
 	//	(count==100)?(count=0):(++count);
 	vTaskDelay(25 / portTICK_PERIOD_MS);  // Changed from 10ms to 25ms to reduce ADC polling rate (thermal optimization)
 	}
@@ -720,6 +714,17 @@ void RX5808_Clear_Backpack_Detection(void)
 void RX5808_Init_Band_X(void)
 {
 	if (!Band_X_Loaded) {
+		// NVS flash must be initialized before any nvs_open() call.
+		// nvs_flash_init() is idempotent: safe to call multiple times.
+		// If the NVS partition is full or has a version mismatch, erase and reinit.
+		esp_err_t ret = nvs_flash_init();
+		if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+			ESP_LOGW(TAG, "NVS partition problem (%s), erasing and reinitialising", esp_err_to_name(ret));
+			ESP_ERROR_CHECK(nvs_flash_erase());
+			ret = nvs_flash_init();
+		}
+		ESP_ERROR_CHECK(ret);
+
 		RX5808_Load_Band_X_From_NVS();
 		Band_X_Loaded = true;
 		ESP_LOGI(TAG, "Band X initialized");
@@ -766,13 +771,8 @@ uint16_t RX5808_Get_Band_X_Freq(uint8_t channel)
  */
 void RX5808_Save_Band_X_To_NVS(void)
 {
-	// Initialize NVS if not already done
-	esp_err_t ret = nvs_flash_init();
-	if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-		ESP_ERROR_CHECK(nvs_flash_erase());
-		ret = nvs_flash_init();
-	}
-	
+	// NVS flash is guaranteed to be initialised by RX5808_Init_Band_X() on boot.
+	// Do NOT call nvs_flash_init()/nvs_flash_erase() here — that would wipe all NVS data.
 	nvs_handle_t nvs_handle;
 	esp_err_t err = nvs_open(NVS_NAMESPACE_BANDX, NVS_READWRITE, &nvs_handle);
 	
@@ -781,21 +781,18 @@ void RX5808_Save_Band_X_To_NVS(void)
 		return;
 	}
 	
-	const char* keys[8] = {
-		NVS_KEY_BANDX_CH1, NVS_KEY_BANDX_CH2, NVS_KEY_BANDX_CH3, NVS_KEY_BANDX_CH4,
-		NVS_KEY_BANDX_CH5, NVS_KEY_BANDX_CH6, NVS_KEY_BANDX_CH7, NVS_KEY_BANDX_CH8
-	};
-	
-	for (uint8_t i = 0; i < 8; i++) {
-		err = nvs_set_u16(nvs_handle, keys[i], Band_X_Custom_Freq[i]);
-		if (err != ESP_OK) {
-			ESP_LOGW(TAG, "Failed to save Band X CH%d: %s", i + 1, esp_err_to_name(err));
-		}
+	// Store all 8 custom frequencies as a single 16-byte blob (fix L).
+	// This reduces NVS write amplification from 8 writes to 1 and makes
+	// the save atomic so a power-loss mid-save cannot corrupt a subset of channels.
+	err = nvs_set_blob(nvs_handle, NVS_KEY_BANDX_FREQS,
+	                   Band_X_Custom_Freq, sizeof(Band_X_Custom_Freq));
+	if (err != ESP_OK) {
+		ESP_LOGW(TAG, "Failed to save Band X blob: %s", esp_err_to_name(err));
 	}
 	
 	err = nvs_commit(nvs_handle);
 	if (err == ESP_OK) {
-		ESP_LOGI(TAG, "Band X frequencies saved to NVS");
+		ESP_LOGI(TAG, "Band X frequencies saved to NVS (blob)");
 	} else {
 		ESP_LOGE(TAG, "Failed to commit Band X to NVS: %s", esp_err_to_name(err));
 	}
@@ -809,33 +806,47 @@ void RX5808_Save_Band_X_To_NVS(void)
 void RX5808_Load_Band_X_From_NVS(void)
 {
 	nvs_handle_t nvs_handle;
-	esp_err_t err = nvs_open(NVS_NAMESPACE_BANDX, NVS_READONLY, &nvs_handle);
+	// Need READWRITE so that we can re-save after a legacy migration in the same open
+	esp_err_t err = nvs_open(NVS_NAMESPACE_BANDX, NVS_READWRITE, &nvs_handle);
 	
 	if (err != ESP_OK) {
 		ESP_LOGI(TAG, "No saved Band X data, using defaults");
 		return;
 	}
 	
-	const char* keys[8] = {
+	// Try current blob format first (written since v1.8.x, fix L)
+	size_t blob_size = sizeof(Band_X_Custom_Freq);
+	err = nvs_get_blob(nvs_handle, NVS_KEY_BANDX_FREQS, Band_X_Custom_Freq, &blob_size);
+	if (err == ESP_OK && blob_size == sizeof(Band_X_Custom_Freq)) {
+		ESP_LOGI(TAG, "Band X frequencies loaded from NVS (blob)");
+		nvs_close(nvs_handle);
+		return;
+	}
+	
+	// Migration path: firmware prior to v1.8.x stored 8 separate u16 keys.
+	// Read them, migrate the data into the blob format, then save so subsequent
+	// boots use the faster, atomic blob approach.
+	ESP_LOGI(TAG, "Band X blob not found — trying legacy per-key format (one-time migration)");
+	const char* legacy_keys[8] = {
 		NVS_KEY_BANDX_CH1, NVS_KEY_BANDX_CH2, NVS_KEY_BANDX_CH3, NVS_KEY_BANDX_CH4,
 		NVS_KEY_BANDX_CH5, NVS_KEY_BANDX_CH6, NVS_KEY_BANDX_CH7, NVS_KEY_BANDX_CH8
 	};
-	
+
 	bool any_loaded = false;
 	for (uint8_t i = 0; i < 8; i++) {
 		uint16_t freq;
-		err = nvs_get_u16(nvs_handle, keys[i], &freq);
-		if (err == ESP_OK) {
+		if (nvs_get_u16(nvs_handle, legacy_keys[i], &freq) == ESP_OK) {
 			Band_X_Custom_Freq[i] = freq;
 			any_loaded = true;
 		}
 	}
-	
-	if (any_loaded) {
-		ESP_LOGI(TAG, "Band X frequencies loaded from NVS");
-	}
-	
 	nvs_close(nvs_handle);
+
+	if (any_loaded) {
+		ESP_LOGI(TAG, "Band X loaded from legacy keys — converting to blob format");
+		// Save immediately using the new blob path so next boot is fast
+		RX5808_Save_Band_X_To_NVS();
+	}
 }
 
 /**

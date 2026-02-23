@@ -1,0 +1,29 @@
+{
+  "name": "RX5808-Div",
+  "version": "v1.8.0",
+  "build_date": "2026-02-23T00:00:00Z",
+  "commit": "f497edc",
+  "changelog_url": "https://github.com/Ft-Available/RX5808-Div/blob/main/Firmware/ESP32/CHANGELOG.md",
+  "documentation_url": "https://github.com/Ft-Available/RX5808-Div#readme",
+  "new_install_improv_wait_time": 0,
+  "new_install_prompt_erase": true,
+  "builds": [
+    {
+      "chipFamily": "ESP32",
+      "parts": [
+        {
+          "path": "RX5808-v1.8.0-bootloader.bin",
+          "offset": 4096
+        },
+        {
+          "path": "RX5808-v1.8.0-partition-table.bin",
+          "offset": 32768
+        },
+        {
+          "path": "RX5808-v1.8.0-firmware.bin",
+          "offset": 65536
+        }
+      ]
+    }
+  ]
+}
