@@ -5,7 +5,6 @@
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include "esp_log.h"
-#include <math.h>
 
 static const char *TAG = "LED";
 
@@ -48,17 +47,29 @@ static void led_apply_brightness(uint8_t brightness, uint32_t tick)
 
 /**
  * @brief Calculate LED brightness for breathing pattern
- * 
- * @param tick Current tick value
+ *
+ * Uses a precomputed 100-entry LUT instead of sinf() to avoid FPU use.
+ * The LUT maps (tick % 2000) / 20 -> brightness 0-100 following a full
+ * sine wave: starts at 50, peaks at 100 (step 25), troughs at 0 (step 75).
+ *
+ * @param tick Current tick value (advances by 20 each iteration)
  * @return Brightness (0-100)
  */
+static const uint8_t breathing_lut[100] = {
+    /* 0-9  */  50, 53, 56, 59, 62, 65, 68, 71, 74, 77,
+    /* 10-19 */ 79, 82, 84, 86, 89, 90, 92, 94, 95, 96,
+    /* 20-29 */ 98, 98, 99,100,100,100,100,100, 99, 98,
+    /* 30-39 */ 98, 96, 95, 94, 92, 90, 89, 86, 84, 82,
+    /* 40-49 */ 79, 77, 74, 71, 68, 65, 62, 59, 56, 53,
+    /* 50-59 */ 50, 47, 44, 41, 38, 35, 32, 29, 26, 23,
+    /* 60-69 */ 21, 18, 16, 14, 11, 10,  8,  6,  5,  4,
+    /* 70-79 */  2,  2,  1,  0,  0,  0,  0,  0,  1,  2,
+    /* 80-89 */  2,  4,  5,  6,  8, 10, 11, 14, 16, 18,
+    /* 90-99 */ 21, 23, 26, 29, 32, 35, 38, 41, 44, 47
+};
 static uint8_t calculate_breathing_brightness(uint32_t tick)
 {
-    // Breathing cycle: 2 seconds (2000ms)
-    // Use sine wave for smooth breathing effect
-    float phase = (tick % 2000) / 2000.0f * 2.0f * M_PI;
-    float brightness = (sinf(phase) + 1.0f) / 2.0f; // 0.0 to 1.0
-    return (uint8_t)(brightness * 100);
+    return breathing_lut[(tick % 2000) / 20];
 }
 
 /**
@@ -123,6 +134,10 @@ static void led_task(void *param)
             led_state = !led_state;
             led_apply_brightness(led_state ? 100 : 0, tick);
             double_blink_count--;
+            if (double_blink_count == 0) {
+                // Restore the pattern that was active before the blink
+                current_pattern = saved_pattern;
+            }
             vTaskDelay(100 / portTICK_PERIOD_MS);
             tick += 100;
             continue;

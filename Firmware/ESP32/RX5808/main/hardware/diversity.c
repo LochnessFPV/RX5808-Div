@@ -8,6 +8,7 @@
 #include "rx5808.h"
 #include "hwvers.h"
 #include "beep.h"
+#include "led.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "nvs_flash.h"
@@ -621,6 +622,14 @@ void diversity_update(void) {
     state->rx_a.rssi_norm = diversity_normalize_rssi(state->rx_a.rssi_raw, &state->cal_a);
     state->rx_b.rssi_norm = diversity_normalize_rssi(state->rx_b.rssi_raw, &state->cal_b);
 
+    // Keep LED signal-strength value in sync with the active receiver
+    {
+        uint8_t active_rssi = (uint8_t)((state->active_rx == DIVERSITY_RX_A)
+                                         ? state->rx_a.rssi_norm
+                                         : state->rx_b.rssi_norm);
+        led_set_signal_strength(active_rssi);
+    }
+
     // --- Point 7: software AGC ---
     // Only update the baseline during stable flight (after 2 s without a switch)
     // to avoid contaminating it with mid-manoeuvre swings.
@@ -734,10 +743,10 @@ void diversity_update(void) {
     // Decide whether to switch
     if (diversity_should_switch(state, params)) {
         diversity_perform_switch(state);
-        // Audio feedback: double-click on every antenna switch
+        // Visual feedback: double blink on every antenna switch.
         // Called here (task context) rather than inside the IRAM_ATTR function
         // to keep the IRAM path free of non-ISR-safe FreeRTOS queue calls.
-        beep_play_double();
+        led_trigger_double_blink();
     }
 
     // --- Point E: low-signal audio alert ---
@@ -752,7 +761,7 @@ void diversity_update(void) {
             state->rx_b.rssi_norm < LOW_SIGNAL_THRESHOLD) {
             if (now - state->low_signal_beep_ms >= LOW_SIGNAL_REPEAT_MS) {
                 state->low_signal_beep_ms = now;
-                beep_play_long();   // long single tone = range warning
+                beep_play_triple(); // three rapid clicks = range warning
             }
         }
     }
