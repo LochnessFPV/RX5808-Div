@@ -46,7 +46,7 @@
 //   - D0WDQ6_VER hardware variant support (v1.2 hardware)
 #define RX5808_VERSION_MAJOR  1
 #define RX5808_VERSION_MINOR  8
-#define RX5808_VERSION_PATCH  0
+#define RX5808_VERSION_PATCH  1
 
 //#define ST7735S
 #define D0WDQ6_VER   // ENABLE this for v1.2 hardware
