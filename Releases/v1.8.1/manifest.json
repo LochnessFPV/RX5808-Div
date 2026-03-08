@@ -1,0 +1,66 @@
+{
+  "name": "RX5808-Div Firmware",
+  "version": "1.8.1",
+  "release_date": "2026-03-08",
+  "release_type": "bugfix",
+  "platform": "ESP32",
+  "description": "Critical OSD display logic bugfix - corrects inverted lock/unlock behavior",
+  
+  "changes": {
+    "bugfixes": [
+      {
+        "category": "OSD",
+        "severity": "high",
+        "description": "Fixed inverted OSD toggle behavior - OSD now correctly ON when unlocked, OFF when locked",
+        "files_modified": [
+          "Firmware/ESP32/RX5808/main/gui/lvgl_app/page_main.c"
+        ],
+        "lines_changed": ["367", "368", "873-876"]
+      }
+    ]
+  },
+  
+  "build_info": {
+    "build_type": "source_only",
+    "esp_idf_version": "5.3.x",
+    "toolchain": "xtensa-esp32-elf-gcc 13.2.0",
+    "binaries_included": false,
+    "build_required": true,
+    "build_instructions": "See RELEASE_NOTES.md"
+  },
+  
+  "compatibility": {
+    "hardware": [
+      "RX5808 Diversity Receiver (ESP32 variant)"
+    ],
+    "previous_versions": ["1.7.0", "1.7.1", "1.8.0"],
+    "breaking_changes": false
+  },
+  
+  "flash_addresses": {
+    "description": "Flash addresses for ESP32",
+    "bootloader": "0x1000",
+    "partition_table": "0x8000",
+    "firmware": "0x10000"
+  },
+  
+  "upgrade_notes": {
+    "from_1.8.0": "Build and flash from source to fix OSD behavior. Safe upgrade, no settings reset required.",
+    "from_1.7.x": "Build and flash from source. All v1.7.x performance improvements are retained.",
+    "from_older": "Review release notes for v1.7.0, v1.7.1, and v1.8.0 for full changelog."
+  },
+  
+  "known_issues": [],
+  
+  "credits": {
+    "osd_fix": "Community feedback and analysis",
+    "original_osd": "ChisBread (林面包)"
+  },
+  
+  "links": {
+    "repository": "https://github.com/Ft-Available/RX5808-Div",
+    "issues": "https://github.com/Ft-Available/RX5808-Div/issues",
+    "documentation": "https://github.com/Ft-Available/RX5808-Div/blob/main/README.md",
+    "esp_idf_setup": "https://docs.espressif.com/projects/esp-idf/en/latest/esp32/get-started/"
+  }
+}

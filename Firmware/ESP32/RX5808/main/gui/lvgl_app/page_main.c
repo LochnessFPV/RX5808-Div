@@ -364,8 +364,8 @@ static void event_callback(lv_event_t* event)
             lock_flag = false;
             led_set_pattern(LED_PATTERN_SOLID);
         }
-        video_composite_switch(!lock_flag);
-        video_composite_sync_switch(!lock_flag);
+        video_composite_switch(lock_flag);
+        video_composite_sync_switch(lock_flag);
         // Item 4: slow LVGL refresh + Item 2: lower CPU when locked
         system_set_lvgl_idle(!lock_flag);
         system_set_cpu_context_idle(!lock_flag);
@@ -869,6 +869,11 @@ void page_main_create()
     // Apply initial power context based on lock state
     system_set_lvgl_idle(!lock_flag);
     system_set_cpu_context_idle(!lock_flag);
+    
+    // Initialize OSD state based on lock state
+    // lock_flag=true (UNLOCKED) → OSD ON, lock_flag=false (LOCKED) → OSD OFF
+    video_composite_switch(lock_flag);
+    video_composite_sync_switch(lock_flag);
     
     // Initialize navigation module with lock state
     navigation_init(&lock_flag);
