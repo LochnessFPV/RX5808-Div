@@ -24,9 +24,13 @@
     "build_type": "source_only",
     "esp_idf_version": "5.3.x",
     "toolchain": "xtensa-esp32-elf-gcc 13.2.0",
-    "binaries_included": false,
-    "build_required": true,
-    "build_instructions": "See RELEASE_NOTES.md"
+    "binaries_included": true,
+    "build_required": false,
+    "binary_files": [
+      "RX5808-v1.8.1-firmware.bin",
+      "RX5808-v1.8.1-bootloader.bin",
+      "RX5808-v1.8.1-partition-table.bin"
+    ]
   },
   
   "compatibility": {

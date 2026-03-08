@@ -294,11 +294,11 @@ void lv_mem_pool_stats(void) {
     
     ESP_LOGI(TAG, "Pool Statistics:");
     ESP_LOGI(TAG, "  Labels: %lu/%d used (%d%% utilization, %lu total allocs)", 
-             label_used, LABEL_POOL_SIZE, (label_used * 100) / LABEL_POOL_SIZE, label_allocs);
+             label_used, LABEL_POOL_SIZE, (int)((label_used * 100) / LABEL_POOL_SIZE), label_allocs);
     ESP_LOGI(TAG, "  Buttons: %lu/%d used (%d%% utilization, %lu total allocs)", 
-             button_used, BUTTON_POOL_SIZE, (button_used * 100) / BUTTON_POOL_SIZE, button_allocs);
+             button_used, BUTTON_POOL_SIZE, (int)((button_used * 100) / BUTTON_POOL_SIZE), button_allocs);
     ESP_LOGI(TAG, "  Containers: %lu/%d used (%d%% utilization, %lu total allocs)", 
-             container_used, CONTAINER_POOL_SIZE, (container_used * 100) / CONTAINER_POOL_SIZE, container_allocs);
+             container_used, CONTAINER_POOL_SIZE, (int)((container_used * 100) / CONTAINER_POOL_SIZE), container_allocs);
     ESP_LOGI(TAG, "  Heap fallback allocs: %lu", heap_allocs);
     ESP_LOGI(TAG, "  Failed allocations: %lu", failed_allocs);
     
