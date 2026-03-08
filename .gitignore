@@ -62,3 +62,6 @@ sdkconfig.old
 build/
 *.bin
 *.elf
+
+# Allow release binaries
+!Releases/**/*.bin
